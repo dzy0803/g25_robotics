@@ -4,7 +4,7 @@ from numpy.fft import fft, fftfreq
 import time
 from matplotlib import pyplot as plt
 from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, SinusoidalReference, CartesianDiffKin
-
+abcdefg
 
 # Configuration for the simulation
 conf_file_name = "pandaconfig.json"  # Configuration file for the robot
