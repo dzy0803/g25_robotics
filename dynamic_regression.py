@@ -101,8 +101,10 @@ def main():
     Y_trimed = Y[7001:,:]
   
     # Compute the parameters 'a' usg pseudoinverse
-    I = np.eye(X_trimed.shape[1])
-    a = np.linalg.inv(X_trimed.T @ X_trimed+1*I) @ X_trimed.T @ Y_trimed
+    b = np.linalg.pinv(X_trimed.T @ X_trimed) @ X_trimed.T @ Y_trimed
+    print(b.shape)
+    X_pinv = np.linalg.pinv(X_trimed)
+    a = X_pinv @ Y_trimed
     print(a.shape)
 
 
@@ -113,7 +115,7 @@ def main():
     RSS = np.sum((Y_trimed - Y_pred) ** 2)
 
     # TSS
-    TSS = np.sum((Y_trimed - np.mean(Y)) ** 2)
+    TSS = np.sum((Y_trimed - np.mean(Y_trimed)) ** 2)
 
     # R-squared
     r_squared = 1 - (RSS / TSS)
@@ -130,8 +132,10 @@ def main():
     F_stat = (TSS-RSS)/p/(RSS/(n-p-1))
 
     # Confidence intervals
-    se = np.sqrt(np.diagonal(mse * np.linalg.inv(X_trimed.T @ X_trimed+1*I)))
-    conf_intervals = [a-1.96*se, a+1.96*se]
+    I = np.eye(X_trimed.shape[1])
+    se = np.sqrt(np.diagonal(mse*np.linalg.pinv(X_trimed.T@X_trimed)))
+    print(se.shape)
+    # conf_intervals = [a-1.96*se, a+1.96*se]
 
     print(f"RSS: {RSS}")
     print(f"TSS: {TSS}")
@@ -139,7 +143,7 @@ def main():
     print(f"Mean squared Error: {mse}")
     print(f"Adjusted R-squared: {adj_r_squared}")
     print(f"F-statistics: {F_stat}")
-    print(f"Confidence intervals: {conf_intervals}")
+   
 
     plt.figure(figsize=(10, 5))
     plt.scatter(Y_trimed,Y_pred,color='blue',alpha=0.5)
@@ -147,40 +151,136 @@ def main():
     plt.xlabel("Y_trimed")
     plt.ylabel("Y_pred")
     plt.grid()
- 
-
+    
 
    
     # TODO plot the  torque prediction error for each joint (optional)
+
     # Joint 1
 
-    joint_1_X = regressor_all[1000:,0,:]
-    joint_1_Y = tau_mes_all[1000:,0]
-    a_1 = np.linalg.inv(joint_1_X.T @ joint_1_X+1*I) @ joint_1_X.T @ joint_1_Y
+    joint_1_X = regressor_all[1001:,0,:]
+    joint_1_Y = tau_mes_all[1001:,0]
+    a_1 = np.linalg.pinv(joint_1_X.T @ joint_1_X) @ joint_1_X.T @ joint_1_Y
     joint_1_Y_pred = joint_1_X @ a_1
-    
+    #mse_1 = np.mean((joint_1_Y - joint_1_Y_pred) ** 2)
+    #se_1 = np.sqrt(np.diagonal(mse_1*np.linalg.pinv(np.dot(joint_1_X.T,joint_1_X))))
+    #conf_intervals_1 = [a_1-1.96*se_1, a_1+1.96*se_1]
+
     plt.figure(figsize=(10, 5))
     plt.plot(joint_1_Y, label='True Torque')
     plt.plot(joint_1_Y_pred, label='Predicted Torque')
+    # plt.fill_between(len(joint_1_Y), a_1-1.96*se_1, a_1+1.96*se_1, color='gray', alpha=0.3, label='95% Confidence Interval')
     plt.xlabel('Time')
     plt.ylabel('Torque')
     plt.title('Joint 1 Torque Prediction')
+    plt.legend()
 
     # Joint 2
     joint_2_X = regressor_all[1000:,1,:]
     joint_2_Y = tau_mes_all[1000:,1]
-    a_2 = np.linalg.inv(joint_2_X.T @ joint_2_X+1*I) @ joint_2_X.T @ joint_2_Y
+    a_2 = np.linalg.pinv(joint_2_X.T @ joint_2_X) @ joint_2_X.T @ joint_2_Y
     joint_2_Y_pred = joint_2_X @ a_2
+    # mse_2 = np.mean((joint_2_Y - joint_2_Y_pred) ** 2)
+    # se_2 = np.sqrt(np.diagonal(mse*np.linalg.pinv(np.dot(joint_2_X.T,joint_2_X))))
+    # conf_intervals_2 = [a_2-1.96*se_2, a_2+1.96*se_2]
 
     plt.figure(figsize=(10, 5))
     plt.plot(joint_2_Y, label='True Torque')
     plt.plot(joint_2_Y_pred, label='Predicted Torque')
+    # plt.fill_between(len(joint_2_Y), a_2-1.96*se_2, a_2+1.96*se_2, color='gray', alpha=0.3, label='95% Confidence Interval')
     plt.xlabel('Time')
     plt.ylabel('Torque')
     plt.title('Joint 2 Torque Prediction')
+    plt.legend()
 
-    plt.show()
-    plt.show()
+    # Joint 3
+    joint_3_X = regressor_all[1001:,2,:]
+    joint_3_Y = tau_mes_all[1001:,2]
+    a_3= np.linalg.pinv(joint_3_X.T @ joint_3_X) @ joint_3_X.T @ joint_3_Y
+    joint_3_Y_pred = joint_3_X @ a_3
+    # mse_3 = np.mean((joint_3_Y - joint_3_Y_pred) ** 2)
+    # se_3 = np.sqrt(np.diagonal(mse_3*np.linalg.pinv(np.dot(joint_3_X.T,joint_3_X))))
+    # conf_intervals = [a_3-1.96*se_3, a_3+1.96*se_3]
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(joint_3_Y, label='True Torque')
+    plt.plot(joint_3_Y_pred, label='Predicted Torque')
+    plt.xlabel('Time')
+    plt.ylabel('Torque')
+    plt.title('Joint 3 Torque Prediction')
+    plt.legend()
+
+    # Joint 4
+    joint_4_X = regressor_all[1001:,3,:]
+    joint_4_Y = tau_mes_all[1001:,3]
+    a_4= np.linalg.pinv(joint_4_X.T @ joint_4_X) @ joint_4_X.T @ joint_4_Y
+    joint_4_Y_pred = joint_4_X @ a_4
+    # mse_4 = np.mean((joint_4_Y - joint_4_Y_pred) ** 2)
+    # se_4 = np.sqrt(np.diagonal(mse_4*np.linalg.pinv(np.dot(joint_4_X.T,joint_4_X))))
+    # conf_intervals_4 = [a_4-1.96*se_4, a_4+1.96*se_4]
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(joint_4_Y, label='True Torque')
+    plt.plot(joint_4_Y_pred, label='Predicted Torque')
+    plt.xlabel('Time')
+    plt.ylabel('Torque')
+    plt.title('Joint 4 Torque Prediction')
+    plt.legend()
+
+    # Joint 5
+    joint_5_X = regressor_all[1001:,4,:]
+    joint_5_Y = tau_mes_all[1001:,4]
+    a_5 = np.linalg.pinv(joint_5_X.T @ joint_5_X) @ joint_5_X.T @ joint_5_Y
+    joint_5_Y_pred = joint_5_X @ a_5
+    # mse_5 = np.mean((joint_5_Y - joint_5_Y_pred) ** 2)
+    # se_5 = np.sqrt(np.diagonal(mse_5*np.linalg.pinv(np.dot(joint_5_X.T,joint_5_X))))
+    # conf_intervals_5 = [a_5-1.96*se_5, a_5+1.96*se_5]
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(joint_5_Y, label='True Torque')
+    plt.plot(joint_5_Y_pred, label='Predicted Torque')
+    plt.xlabel('Time')
+    plt.ylabel('Torque')
+    plt.title('Joint 5 Torque Prediction')
+    plt.legend()
+
+
+    # Joint 6
+    joint_6_X = regressor_all[1001:,5,:]
+    joint_6_Y = tau_mes_all[1001:,5]
+    a_6 = np.linalg.pinv(joint_6_X.T @ joint_6_X) @ joint_6_X.T @ joint_6_Y
+    joint_6_Y_pred = joint_6_X @ a_6
+    # mse_6 = np.mean((joint_6_Y - joint_6_Y_pred) ** 2)
+    # se_6 = np.sqrt(np.diagonal(mse_6*np.linalg.pinv(np.dot(joint_6_X.T,joint_6_X))))
+    # conf_intervals_6 = [a_6-1.96*se_6, a_6+1.96*se_6]
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(joint_6_Y, label='True Torque')
+    plt.plot(joint_6_Y_pred, label='Predicted Torque')
+    plt.xlabel('Time')
+    plt.ylabel('Torque')
+    plt.title('Joint 6 Torque Prediction')
+    plt.legend()
+
+
+
+    # Joint 7
+    joint_7_X = regressor_all[1001:,6,:]
+    joint_7_Y = tau_mes_all[1001:,6]
+    a_7 = np.linalg.pinv(joint_7_X.T @ joint_7_X) @ joint_7_X.T @ joint_7_Y
+    joint_7_Y_pred = joint_7_X @ a_7
+    # mse_7 = np.mean((joint_7_Y - joint_7_Y_pred) ** 2)
+    # se_7 = np.sqrt(np.diagonal(mse_7*np.linalg.pinv(np.dot(joint_7_X.T,joint_7_X))))
+    # conf_intervals_7 = [a_7-1.96*se_7, a_7+1.96*se_7]
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(joint_7_Y, label='True Torque')
+    plt.plot(joint_7_Y_pred, label='Predicted Torque')
+    plt.xlabel('Time')
+    plt.ylabel('Torque')
+    plt.title('Joint 7 Torque Prediction')
+    plt.legend()
+
     plt.show()
 
     
