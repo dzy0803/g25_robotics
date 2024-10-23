@@ -6,63 +6,101 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 
+# 1. Pre-processing
 # Generate synthetic data
 x1 = np.arange(0, 10, 0.1)
 x2 = np.arange(0, 10, 0.1)
 x1, x2 = np.meshgrid(x1, x2)
 y = np.sin(x1) * np.cos(x2) + np.random.normal(scale=0.1, size=x1.shape)
-
 # Flatten the arrays
 x1 = x1.flatten()
 x2 = x2.flatten()
 y = y.flatten()
 X = np.vstack((x1, x2)).T
-
-# Split data into training and testing sets
+# Split data
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-# Decision Tree Regressor
-tree = DecisionTreeRegressor(max_depth=20, splitter='best')
+
+# 2.Implement decision tree train
+tree = DecisionTreeRegressor(max_depth=10)
 tree.fit(X_train, y_train)
-decision_tree_y_pred = tree.predict(X_test)
-decision_tree_y_mean_squared_error = mean_squared_error(y_test, decision_tree_y_pred)
-decision_tree_y_r2score = r2_score(y_test, decision_tree_y_pred)
+# Testing
+decision_tree_y_pred_test = tree.predict(X_test)     # Testing for test set prediction
+decision_tree_y_pred_train = tree.predict(X_train)   # Testing for train set prediction
+# test set prediction assess
+decision_tree_y_mean_squared_error_Test = mean_squared_error(y_test, decision_tree_y_pred_test)
+decision_tree_y_r2score_Test = r2_score(y_test, decision_tree_y_pred_test)
+print(f"Decision Tree Regression - Test set MSE: {decision_tree_y_mean_squared_error_Test:.4f}")
+print(f"Decision Tree Regression - Test set R^2: {decision_tree_y_r2score_Test:.4f}")
+# train set prediction assess
+decision_tree_y_mean_squared_error_Train = mean_squared_error(y_train, decision_tree_y_pred_train)
+decision_tree_y_r2score_Train = r2_score(y_train, decision_tree_y_pred_train)
+print(f"Decision Tree Regression - Trian set MSE: {decision_tree_y_r2score_Train :.4f}")
+print(f"Decision Tree Regression - Train set R^2: {decision_tree_y_r2score_Train:.4f}")
+# 3D Decision Tree Visualization
+# Plot configuration
+fig = plt.figure(figsize=(15, 10))
+# 3D Plot for train set
+ax1 = fig.add_subplot(121, projection='3d')
+ax1.scatter(X_train[:, 0], X_train[:, 1], y_train, color='r', label='Y_train (True)', s=20)
+ax1.scatter(X_train[:, 0], X_train[:, 1], decision_tree_y_pred_train, color='b', label='Y_train (Predicted)', s=20, alpha=0.5)
+ax1.set_xlabel('X1 (Train)')
+ax1.set_ylabel('X2 (Train)')
+ax1.set_zlabel('Y')
+ax1.set_title('Decision Tree: 3D Visualization of X1_train, X2_train, Y_train, and Y_train_pred')
+ax1.legend()
+# 3D Plot for test set
+ax2 = fig.add_subplot(122, projection='3d')
+ax2.scatter(X_test[:, 0], X_test[:, 1], y_test, color='r', label='Y_test (True)', s=20)
+ax2.scatter(X_test[:, 0], X_test[:, 1], decision_tree_y_pred_test, color='b', label='Y_test (Predicted)', s=20, alpha=0.5)
+ax2.set_xlabel('X1 (Test)')
+ax2.set_ylabel('X2 (Test)')
+ax2.set_zlabel('Y')
+ax2.set_title('Decision Tree: 3D Visualization of X1_test, X2_test, Y_test, and Y_test_pred')
+ax2.legend()
+plt.show()
 
-print(f"Decision Tree Regressor Mean Squared Error: {decision_tree_y_mean_squared_error}")
-print(f"Decision Tree Regressor R2 Score: {decision_tree_y_r2score}")
 
-# Polynomial Regression
+# 3.Implement polynomial regression train
 poly = PolynomialFeatures(degree=10)
 X_poly_train = poly.fit_transform(X_train)
 X_poly_test = poly.transform(X_test)
 poly_regressor = LinearRegression()
 poly_regressor.fit(X_poly_train, y_train)
-poly_y_pred = poly_regressor.predict(X_poly_test)
-poly_y_mean_squared_error = mean_squared_error(y_test, poly_y_pred)
-poly_y_r2score = r2_score(y_test, poly_y_pred)
+# Testing 
+poly_y_pred_test = poly_regressor.predict(X_poly_test)# Testing for test set prediction
+poly_y_pred_train = poly_regressor.predict(X_poly_train)# Testing for train set prediction
+# test set prediction assess
+poly_y_mean_squared_error_test = mean_squared_error(y_test, poly_y_pred_test)
+poly_y_r2score_test = r2_score(y_test, poly_y_pred_test)
+print(f"Polynomial Regression Mean Squared Error for test set: {poly_y_mean_squared_error_test}")
+print(f"Polynomial Regression R2 Score: {poly_y_r2score_test}")
+# train set prediction assess
+poly_y_mean_squared_error_train = mean_squared_error(y_train, poly_y_pred_train)
+poly_y_r2score_train= r2_score(y_train, poly_y_pred_train)
+print(f"Polynomial Regression Mean Squared Error for train set: {poly_y_mean_squared_error_train}")
+print(f"Polynomial Regression R2 Score for train set: {poly_y_r2score_train}")
 
-print(f"Polynomial Regression Mean Squared Error: {poly_y_mean_squared_error}")
-print(f"Polynomial Regression R2 Score: {poly_y_r2score}")
 
+#4. Comparision Plot Configuration
 # Plotting the Actual vs Predicted values for both models in a single plot
 plt.figure(figsize=(10, 5))
-
-# Scatter plots for Decision Tree Regressor and Polynomial Regression
-plt.scatter(y_test, decision_tree_y_pred, alpha=0.5, color='blue', label='Decision Tree Regressor')
-plt.scatter(y_test, poly_y_pred, alpha=0.5, color='red', label='Polynomial Regression')
-
+# pScatter plots for Decision Tree Regressor and Polynomial Regression
+plt.scatter(y_test, decision_tree_y_pred_test, alpha=0.5, color='blue', label='Decision Tree Regressor')
+plt.scatter(y_test, poly_y_pred_test, alpha=0.5, color='red', label='Polynomial Regression')
 # Ideal fit line (y = x)
-line_min = min(y_test.min(), decision_tree_y_pred.min(), poly_y_pred.min())
-line_max = max(y_test.max(), decision_tree_y_pred.max(), poly_y_pred.max())
+line_min = min(y_test.min(), decision_tree_y_pred_test.min(), poly_y_pred_test.min())
+line_max = max(y_test.max(), decision_tree_y_pred_test.max(), poly_y_pred_test.max())
 plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
-
 # Polynomial Regression best-fit line
-poly_coeff = np.polyfit(y_test, poly_y_pred, deg=1)  # Fit a linear best-fit line
+poly_coeff = np.polyfit(y_test, poly_y_pred_test, deg=1)  # Fit a linear best-fit line
 poly_best_fit_line = np.poly1d(poly_coeff)
 plt.plot(np.sort(y_test), poly_best_fit_line(np.sort(y_test)), color='grey', linestyle='--', linewidth=2, label='Polynomial Best Fit Line')
-
-plt.xlabel('Actual Values')
-plt.ylabel('Predicted Values')
-plt.title('Actual vs Predicted: Decision Tree Regressor vs Polynomial Regression')
+plt.xlabel('actual target (y)')
+plt.ylabel('predicted target (y)')
+plt.title('Test Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor vs Polynomial Regression')
 plt.legend()
 plt.show()
+
+
+
