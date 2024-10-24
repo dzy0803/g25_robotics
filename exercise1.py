@@ -22,7 +22,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_
 
 
 # 2.Implement decision tree train
-tree = DecisionTreeRegressor(max_depth=10)
+tree = DecisionTreeRegressor(max_depth=10, splitter="best")  # max_depth = {5, 10} and splitter = {"best", "random"} used
 tree.fit(X_train, y_train)
 # Testing
 decision_tree_y_pred_test = tree.predict(X_test)     # Testing for test set prediction
@@ -47,7 +47,7 @@ ax1.scatter(X_train[:, 0], X_train[:, 1], decision_tree_y_pred_train, color='b',
 ax1.set_xlabel('X1 (Train)')
 ax1.set_ylabel('X2 (Train)')
 ax1.set_zlabel('Y')
-ax1.set_title('Decision Tree: 3D Visualization of X1_train, X2_train, Y_train, and Y_train_pred')
+ax1.set_title('Decision Tree: 3D Visualization of X1_train, X2_train, Y_train, Y_train_pred')
 ax1.legend()
 # 3D Plot for test set
 ax2 = fig.add_subplot(122, projection='3d')
@@ -56,8 +56,35 @@ ax2.scatter(X_test[:, 0], X_test[:, 1], decision_tree_y_pred_test, color='b', la
 ax2.set_xlabel('X1 (Test)')
 ax2.set_ylabel('X2 (Test)')
 ax2.set_zlabel('Y')
-ax2.set_title('Decision Tree: 3D Visualization of X1_test, X2_test, Y_test, and Y_test_pred')
+ax2.set_title('Decision Tree: 3D Visualization of X1_test, X2_test, Y_test, Y_test_pred')
 ax2.legend()
+plt.show()
+
+# pScatter plots of the Actual vs Predicted values for both Train and Test set
+plt.figure(figsize=(15, 10))
+# Trian set
+plt.subplot(1, 2, 1)  # Second plot
+plt.scatter(y_train, decision_tree_y_pred_train, alpha=0.5, color='blue', label='Decision Tree Regressor')
+# Ideal fit line (y = x)
+line_min = min(y_train.min(), decision_tree_y_pred_train.min())
+line_max = max(y_train.max(), decision_tree_y_pred_train.max())
+plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
+plt.xlabel('Y_train (True)')
+plt.ylabel('Y_train (Predicted)')
+plt.title('Train Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor')
+plt.legend()
+#  Test set
+plt.subplot(1, 2, 2)  # First plot
+plt.scatter(y_test, decision_tree_y_pred_test, alpha=0.5, color='grey', label='Decision Tree Regressor')
+# Ideal fit line (y = x)
+line_min = min(y_test.min(), decision_tree_y_pred_test.min())
+line_max = max(y_test.max(), decision_tree_y_pred_test.max())
+plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
+plt.xlabel('Y_test (True)')
+plt.ylabel('Y_test (Predicted)')
+plt.title('Test Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor')
+plt.legend()
+plt.tight_layout()
 plt.show()
 
 
@@ -82,6 +109,7 @@ print(f"Polynomial Regression Mean Squared Error for train set: {poly_y_mean_squ
 print(f"Polynomial Regression R2 Score for train set: {poly_y_r2score_train}")
 
 
+
 #4. Comparision Plot Configuration
 # Plotting the Actual vs Predicted values for both models in a single plot
 plt.figure(figsize=(10, 5))
@@ -96,11 +124,46 @@ plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal F
 poly_coeff = np.polyfit(y_test, poly_y_pred_test, deg=1)  # Fit a linear best-fit line
 poly_best_fit_line = np.poly1d(poly_coeff)
 plt.plot(np.sort(y_test), poly_best_fit_line(np.sort(y_test)), color='grey', linestyle='--', linewidth=2, label='Polynomial Best Fit Line')
-plt.xlabel('actual target (y)')
-plt.ylabel('predicted target (y)')
+plt.xlabel('Y_test (True)')
+plt.ylabel('Y_test (Predicted)')
 plt.title('Test Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor vs Polynomial Regression')
 plt.legend()
 plt.show()
+
+
+# (optional)Test set Decision Tree 2D Plot : where the result presented as color scale
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+scatter1= plt.scatter(x1, x2, c=y, cmap='viridis', s=5)
+plt.colorbar(scatter1, label='Color Scale')  
+plt.title('Original Data')
+plt.subplot(1, 2, 2)
+scatter2 = plt.scatter(X_test[:, 0], X_test[:, 1], c=decision_tree_y_pred_test, cmap='viridis', s=5)
+plt.colorbar(scatter2, label='Color Scale')  
+plt.title('Test set: Decision Tree Prediction')
+plt.show()
+# (optional)Train set Decision Tree 2D Plot : where the result presented as color scale
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+scatter3= plt.scatter(x1, x2, c=y, cmap='viridis', s=5)
+plt.colorbar(scatter3, label='Color Scale')  
+plt.title('Original Data')
+plt.subplot(1, 2, 2)
+scatter4 = plt.scatter(X_train[:, 0], X_train[:, 1], c=decision_tree_y_pred_train, cmap='viridis', s=5)
+plt.colorbar(scatter4, label='Color Scale')  
+plt.title('Trian set: Decision Tree Prediction')
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
