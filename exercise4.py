@@ -1,9 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import AdaBoostRegressor
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, r2_score
@@ -24,7 +21,7 @@ X = np.vstack((x1, x2)).T
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
 # Set parameters
-n_estimators = 100 # Number of boosting iterations
+n_estimators = 50 # Number of boosting iterations
 max_depth=10
 # Create an AdaBoostRegressor with a DecisionTreeRegressor as the base estimator
 ada_regressor = AdaBoostRegressor(
@@ -64,13 +61,17 @@ line_min = min(y_test.min(), ada_y_pred_test.min())
 line_max = max(y_test.max(), ada_y_pred_test.max())
 plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
 
-# Setting labels and title
-plt.xlabel('Actual Values')
-plt.ylabel('Predicted Values')
-plt.title('Actual vs Predicted Values: AdaBoost Regressor')
+# Setting labels and title with increased font size
+plt.xlabel('Y_test (True)', fontsize=20)  # Increase x-axis label size
+plt.ylabel('Y_test (Predicted)', fontsize=20)  # Increase y-axis label size
+plt.title('Y_test (True) vs Y_test (Predicted): AdaBoost Regressor', fontsize=19)  # Increase title size
 
-# Adding legend
-plt.legend()
+# Enlarging tick labels
+plt.xticks(fontsize=20)
+plt.yticks(fontsize=20)
+
+# Adding legend with enlarged label font size
+plt.legend(fontsize=18)  # Adjust legend font size as needed
 
 # Display the plot
 plt.grid(True)
