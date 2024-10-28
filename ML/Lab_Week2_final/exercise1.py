@@ -167,3 +167,5 @@ scatter4 = plt.scatter(X_train[:, 0], X_train[:, 1], c=decision_tree_y_pred_trai
 plt.colorbar(scatter4, label='Color Scale')  
 plt.title('Trian set: Decision Tree Prediction')
 plt.show()
+
+
