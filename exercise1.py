@@ -60,30 +60,37 @@ ax2.set_title('Decision Tree: 3D Visualization of X1_test, X2_test, Y_test, Y_te
 ax2.legend()
 plt.show()
 
-# pScatter plots of the Actual vs Predicted values for both Train and Test set
-plt.figure(figsize=(15, 10))
-# Trian set
-plt.subplot(1, 2, 1)  # Second plot
+# Scatter plots of the Actual vs Predicted values for both Train and Test set
+plt.figure(figsize=(20, 10))
+
+# Train set
+plt.subplot(1, 2, 1)  # First plot
 plt.scatter(y_train, decision_tree_y_pred_train, alpha=0.5, color='blue', label='Decision Tree Regressor')
 # Ideal fit line (y = x)
 line_min = min(y_train.min(), decision_tree_y_pred_train.min())
 line_max = max(y_train.max(), decision_tree_y_pred_train.max())
 plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
-plt.xlabel('Y_train (True)')
-plt.ylabel('Y_train (Predicted)')
-plt.title('Train Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor')
-plt.legend()
-#  Test set
-plt.subplot(1, 2, 2)  # First plot
+plt.xlabel('Y_train (True)', fontsize=20)  # Increase x-axis label size
+plt.ylabel('Y_train (Predicted)', fontsize=20)  # Increase y-axis label size
+plt.title('Y_train (True) vs. Y_train (Predicted) -- Decision Tree Regressor', fontsize=18)  # Increase title size
+plt.xticks(fontsize=20)  # Increase x-tick label size
+plt.yticks(fontsize=20)  # Increase y-tick label size
+plt.legend(fontsize=20)  # Increase legend font size
+
+# Test set
+plt.subplot(1, 2, 2)  # Second plot
 plt.scatter(y_test, decision_tree_y_pred_test, alpha=0.5, color='grey', label='Decision Tree Regressor')
 # Ideal fit line (y = x)
 line_min = min(y_test.min(), decision_tree_y_pred_test.min())
 line_max = max(y_test.max(), decision_tree_y_pred_test.max())
 plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
-plt.xlabel('Y_test (True)')
-plt.ylabel('Y_test (Predicted)')
-plt.title('Test Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor')
-plt.legend()
+plt.xlabel('Y_test (True)', fontsize=20)  # Increase x-axis label size
+plt.ylabel('Y_test (Predicted)', fontsize=20)  # Increase y-axis label size
+plt.title('Y_test (True) vs. Y_test (Predicted) -- Decision Tree Regressor', fontsize=18)  # Increase title size
+plt.xticks(fontsize=20)  # Increase x-tick label size
+plt.yticks(fontsize=20)  # Increase y-tick label size
+plt.legend(fontsize=20)  # Increase legend font size
+
 plt.tight_layout()
 plt.show()
 
@@ -101,7 +108,7 @@ poly_y_pred_train = poly_regressor.predict(X_poly_train)# Testing for train set 
 poly_y_mean_squared_error_test = mean_squared_error(y_test, poly_y_pred_test)
 poly_y_r2score_test = r2_score(y_test, poly_y_pred_test)
 print(f"Polynomial Regression Mean Squared Error for test set: {poly_y_mean_squared_error_test}")
-print(f"Polynomial Regression R2 Score: {poly_y_r2score_test}")
+print(f"Polynomial Regression R2 Score for test set: {poly_y_r2score_test}")
 # train set prediction assess
 poly_y_mean_squared_error_train = mean_squared_error(y_train, poly_y_pred_train)
 poly_y_r2score_train= r2_score(y_train, poly_y_pred_train)
@@ -124,10 +131,17 @@ plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal F
 poly_coeff = np.polyfit(y_test, poly_y_pred_test, deg=1)  # Fit a linear best-fit line
 poly_best_fit_line = np.poly1d(poly_coeff)
 plt.plot(np.sort(y_test), poly_best_fit_line(np.sort(y_test)), color='grey', linestyle='--', linewidth=2, label='Polynomial Best Fit Line')
-plt.xlabel('Y_test (True)')
-plt.ylabel('Y_test (Predicted)')
-plt.title('Test Set: Actual(y) vs Predicted(y) -- Decision Tree Regressor vs Polynomial Regression')
-plt.legend()
+# Setting labels and title with increased font size
+plt.xlabel('Y_test (True)', fontsize=20)  # Increase x-axis label size
+plt.ylabel('Y_test (Predicted)', fontsize=20)  # Increase y-axis label size
+plt.title('Y_test (True) vs Y_test (Predicted): Decision Tree Regressor vs Polynomial Regression', fontsize=19)  # Increase title size
+
+# Enlarging tick labels
+plt.xticks(fontsize=20)
+plt.yticks(fontsize=20)
+
+# Adding legend with enlarged label font size
+plt.legend(fontsize=18)  # Adjust legend font size as needed
 plt.show()
 
 
@@ -153,17 +167,3 @@ scatter4 = plt.scatter(X_train[:, 0], X_train[:, 1], c=decision_tree_y_pred_trai
 plt.colorbar(scatter4, label='Color Scale')  
 plt.title('Trian set: Decision Tree Prediction')
 plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
