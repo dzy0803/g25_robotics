@@ -21,9 +21,9 @@ X = np.vstack((x1, x2)).T
 # Split data
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-max_depth= 20
-n_estimators= 75
-bagging_regressor = BaggingRegressor(estimator=DecisionTreeRegressor(max_depth=20),n_estimators=50,random_state=42)
+max_depth= 10
+n_estimators= 50
+bagging_regressor = BaggingRegressor(estimator=DecisionTreeRegressor(max_depth=max_depth),n_estimators=n_estimators,random_state=42)
 bagging_regressor.fit(X_train, y_train)
 
 bagging_regressor_y_pred = bagging_regressor.predict(X_test)
@@ -46,13 +46,17 @@ line_min = min(y_test.min(), bagging_regressor_y_pred.min())
 line_max = max(y_test.max(), bagging_regressor_y_pred.max())
 plt.plot([line_min, line_max], [line_min, line_max], 'k--', lw=2, label='Ideal Fit Line')
 
-# Setting labels and title
-plt.xlabel('Actual Values')
-plt.ylabel('Predicted Values')
-plt.title('Actual vs Predicted Values: Bagging Regressor')
+# Setting labels and title with increased font size
+plt.xlabel('Y_test (True)', fontsize=20)  # Increase x-axis label size
+plt.ylabel('Y_test (Predicted)', fontsize=20)  # Increase y-axis label size
+plt.title('Y_test (True) vs Y_test (Predicted): Bagging Regressor', fontsize=19)  # Increase title size
 
-# Adding legend
-plt.legend()
+# Enlarging tick labels
+plt.xticks(fontsize=20)
+plt.yticks(fontsize=20)
+
+# Adding legend with enlarged label font size
+plt.legend(fontsize=18)  # Adjust legend font size as needed
 
 # Display the plot
 plt.grid(True)
