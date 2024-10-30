@@ -89,7 +89,7 @@ def main():
     C = np.eye(num_states)
     
     # Horizon length
-    N_mpc = 10
+    N_mpc = 5
 
     # Initialize the regulator model
     regulator = RegulatorModel(N_mpc, num_states, num_controls, num_states)
@@ -99,18 +99,21 @@ def main():
     # or you can linearize around the current state and control of the robot
     # in the second case case you need to update the matrices A and B at each time step
     # and recall everytime the method updateSystemMatrices
-
-    state_x_for_linearization = [0,0,0]
-    cur_u_for_linearization = [0,0]
-
-    regulator.updateSystemMatrices(sim,state_x_for_linearization,cur_u_for_linearization)
+    init_pos  = np.array([2.0, 3.0])
+    init_quat = np.array([0,0,0.3827,0.9239])
+    init_base_bearing_ = quaternion2bearing(init_quat[3], init_quat[0], init_quat[1], init_quat[2])
+    # cur_state_x_for_linearization = [init_pos[0], init_pos[1], init_base_bearing_]
+    # cur_u_for_linearization = np.zeros(num_controls)
+    # regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
     # Define the cost matrices
-    Qcoeff = 1000
+    Qcoeff = np.array([310, 310, 80.0])
     Rcoeff = 1
+    # Qcoeff= 1000
+    # Rcoeff=1
     regulator.setCostMatrices(Qcoeff,Rcoeff)
    
 
-
+    u_mpc = np.zeros(num_controls)
 
     ##### robot parameters ########
     wheel_radius = 0.11
@@ -160,13 +163,14 @@ def main():
    
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
+        # add this 3 lines if you want to update the A and B matrices at each time step 
+        cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+        cur_u_for_linearization = u_mpc
+        regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
 
-        # regulator.updateSystemMatrices(sim,base_pos,cmd.SetControlCmd())
-
-
-        S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
+        regulator.compute_terminal_weight_matrix()
+        S_bar, T_bar, Q_bar, R_bar= regulator.propagation_model_regulator_fixed_std()
         H,F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
-        # x0_mpc = np.array([base_pos[0], base_pos[1], base_bearing_])
         x0_mpc = np.hstack((base_pos[:2], base_bearing_))
         x0_mpc = x0_mpc.flatten()
         # Compute the optimal control sequence
@@ -181,15 +185,12 @@ def main():
         cmd.SetControlCmd(angular_wheels_velocity_cmd, interface_all_wheels)
 
 
-       
-
         # Exit logic with 'q' key (unchanged)
         keys = sim.GetPyBulletClient().getKeyboardEvents()
         qKey = ord('q')
         if qKey in keys and keys[qKey] and sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
             break
         
-
 
         # Store data for plotting if necessary
         base_pos_all.append(base_pos)
@@ -198,39 +199,23 @@ def main():
         # Update current time
         current_time += time_step
 
-        
-    # Convert the stored data to NumPy arrays
+
+    # Plotting 
+    #add visualization of final x, y, trajectory and theta
     base_pos_all = np.array(base_pos_all)
     base_bearing_all = np.array(base_bearing_all)
-    time_array = np.linspace(0, current_time, len(base_pos_all))
 
-    # Plotting the robot's trajectory
-    plt.figure(figsize=(10, 5))
-
-
-    # Plot trajectory
-    plt.subplot(1, 2, 1)
-    plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label='Robot Path')
-    plt.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color='red', label='Landmarks')
-    plt.title('Robot Trajectory')
-    plt.xlabel('X Position')
-    plt.ylabel('Y Position')
-    plt.legend()
-    plt.axis('equal')
-
-    # Plot orientation over time
-    plt.subplot(1, 2, 2)
-    plt.plot(time_array, base_bearing_all)
-    plt.title('Robot Orientation Over Time')
-    plt.xlabel('Time [s]')
-    plt.ylabel('Orientation [rad]')
-
-    plt.tight_layout()
+    plt.figure()
+    plt.plot(base_pos_all[:, 0], base_pos_all[:, 1])
+    plt.scatter(base_pos_all[0, 0], base_pos_all[0, 1], c='r', label='Start')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Robot trajectory')
+    plt.grid()
     plt.show()
-
-
+    
+    
     
 
 if __name__ == '__main__':
     main()
-
