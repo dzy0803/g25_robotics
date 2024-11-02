@@ -16,17 +16,17 @@ landmarks = np.array([
         ])
 
 
-def landmark_range_observations(base_position):
+def landmark_range_observations(base_position, W_range):
     y = []
     C = []
     W = W_range
     for lm in landmarks:
-        # True range measurement (with noise)
+    # True range measurement (with noise)
         dx = lm[0] - base_position[0]
         dy = lm[1] - base_position[1]
-        range_meas = np.sqrt(dx**2 + dy**2)
+        range_meas = np.sqrt(dx**2 + dy**2)+np.random.normal(0, np.sqrt(W))
        
-        y.append(range_meas)
+    y.append(range_meas)
 
     y = np.array(y)
     return y
@@ -46,6 +46,10 @@ def quaternion2bearing(q_w, q_x, q_y, q_z):
     bearing_ = base_euler[2]
 
     return bearing_
+
+
+def wrap_angle(angle):
+    return np.arctan2(np.sin(angle), np.cos(angle))
 
 
 def init_simulator(conf_file_name):
@@ -68,7 +72,7 @@ def main():
     sim,dyn_model,num_joints=init_simulator(conf_file_name)
 
     # adjusting floor friction
-    floor_friction = 1
+    floor_friction = 100
     sim.SetFloorFriction(floor_friction)
     # getting time step
     time_step = sim.GetTimeStep()
@@ -89,7 +93,7 @@ def main():
     C = np.eye(num_states)
     
     # Horizon length
-    N_mpc = 5
+    N_mpc = 10
 
     # Initialize the regulator model
     regulator = RegulatorModel(N_mpc, num_states, num_controls, num_states)
@@ -106,14 +110,12 @@ def main():
     # cur_u_for_linearization = np.zeros(num_controls)
     # regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
     # Define the cost matrices
-    Qcoeff = np.array([310, 310, 80.0])
-    Rcoeff = 1
-    # Qcoeff= 1000
-    # Rcoeff=1
+    Qcoeff = np.array([150,580,470])
+    Rcoeff = 0.65
     regulator.setCostMatrices(Qcoeff,Rcoeff)
    
 
-    u_mpc = np.zeros(num_controls)
+    u_mpc = [0,0]
 
     ##### robot parameters ########
     wheel_radius = 0.11
@@ -127,7 +129,7 @@ def main():
     init_interface_all_wheels = ["velocity", "velocity", "velocity", "velocity"]
     cmd.SetControlCmd(init_angular_wheels_velocity_cmd, init_interface_all_wheels)
     
-    while current_time < 10:
+    while current_time < 20:
 
 
         # True state propagation (with process noise)
@@ -149,7 +151,7 @@ def main():
         base_pos = sim.GetBasePosition()
         base_ori = sim.GetBaseOrientation()
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
-        y = landmark_range_observations(base_pos)
+        y = landmark_range_observations(base_pos, W_range)
     
         # Update the filter with the latest observations
         
@@ -169,7 +171,8 @@ def main():
         regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
 
         regulator.compute_terminal_weight_matrix()
-        S_bar, T_bar, Q_bar, R_bar= regulator.propagation_model_regulator_fixed_std()
+        print("terminal weight matrix",regulator.P)
+        S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
         H,F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
         x0_mpc = np.hstack((base_pos[:2], base_bearing_))
         x0_mpc = x0_mpc.flatten()
@@ -193,8 +196,8 @@ def main():
         
 
         # Store data for plotting if necessary
-        base_pos_all.append(base_pos)
-        base_bearing_all.append(base_bearing_)
+        base_pos_all.append(base_pos_no_noise)
+        base_bearing_all.append(base_bearing_no_noise_)
 
         # Update current time
         current_time += time_step
@@ -202,19 +205,51 @@ def main():
 
     # Plotting 
     #add visualization of final x, y, trajectory and theta
+        # Plotting 
+    #add visualization of final x, y, trajectory and theta
     base_pos_all = np.array(base_pos_all)
     base_bearing_all = np.array(base_bearing_all)
 
-    plt.figure()
+    plt.figure(figure=(12,6))
     plt.plot(base_pos_all[:, 0], base_pos_all[:, 1])
     plt.scatter(base_pos_all[0, 0], base_pos_all[0, 1], c='r', label='Start')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('Robot trajectory')
+    plt.scatter(base_pos_all[-1, 0], base_pos_all[-1, 1], c='g', label='End')
+    plt.scatter(0,0, c='b', label='Goal')
+    plt.legend(fontsize=16)
+    plt.xlabel('x',fontsize=18)
+    plt.ylabel('y',fontsize=18)
+    plt.title('Robot trajectory', fontsize=22)
     plt.grid()
     plt.show()
+
+
+    plt.figure(figure=(12,6))
+    plt.plot(base_pos_all[:, 0], label='x_corrdinate')
+    plt.plot(base_pos_all[:, 1], label='y_corrdinate')
+    plt.plot(base_bearing_all, label='theta')
+    plt.axhline(0, color='red', linestyle='--', label='goal_state')
+    plt.xlabel('time',fontsize=18)
+    plt.ylabel('corrdinate',fontsize=18)
+    plt.title('System States Covergence', fontsize=22)
+    plt.grid()
+    plt.legend(fontsize=16)
+    plt.show()
+
+
+    # plt.figure(figure=(12,6))
+    # plt.plot(base_pos_all[:, 1], label='y_corrdinate')
+    # plt.axhline(0, color='red', linestyle='--', label='goal_state')
+    # plt.xlabel('time',fontsize=18)
+    # plt.ylabel('x_corrdinate',fontsize=18)
+    # plt.title('Robot x_corrdinate', fontsize=22)
+    # plt.grid()
+    # plt.legend(fontsize=16)
+    # plt.show()
+
     
-    
+
+if __name__ == '__main__':
+    main()
     
 
 if __name__ == '__main__':
