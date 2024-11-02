@@ -110,8 +110,8 @@ def main():
     # cur_u_for_linearization = np.zeros(num_controls)
     # regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
     # Define the cost matrices
-    Qcoeff = np.array([150,580,470])
-    Rcoeff = 0.65
+    Qcoeff = np.array([310,310,80])
+    Rcoeff = 0.5
     regulator.setCostMatrices(Qcoeff,Rcoeff)
    
 
@@ -170,8 +170,8 @@ def main():
         cur_u_for_linearization = u_mpc
         regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
 
-        regulator.compute_terminal_weight_matrix()
-        print("terminal weight matrix",regulator.P)
+        #regulator.compute_terminal_weight_matrix()
+        #print("terminal weight matrix",regulator.P)
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
         H,F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
         x0_mpc = np.hstack((base_pos[:2], base_bearing_))
