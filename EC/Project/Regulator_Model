@@ -12,11 +12,11 @@ class RegulatorModel:
         self.q = q #  output dimension
         self.m = m #  input dimension
         self.n = n #  state dimension
-        # self.P=None
+        self.P=None
 
     def compute_terminal_weight_matrix(self):
         
-        self.P= solve_discrete_are(self.A, self.B, self.Q, self.R)
+        self.P= solve_discrete_are(self.A, self.B, self.Q, self.R, balanced=True)
   
 
     def compute_H_and_F(self, S_bar, T_bar, Q_bar, R_bar):
@@ -42,7 +42,7 @@ class RegulatorModel:
                 S_bar[(k-1)*self.q:k*self.q, (k-j)*self.m:(k-j+1)*self.m] = submatrix
             T_bar[(k-1)*self.q:k*self.q, :self.n] = np.dot(self.C, np.linalg.matrix_power(self.A, k))
             if k == self.N:
-                Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P/10
+                Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P
             else:
                 Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.Q
             R_bar[(k-1)*self.m:k*self.m, (k-1)*self.m:k*self.m] = self.R
@@ -80,6 +80,7 @@ class RegulatorModel:
         num_controls = self.m
         num_outputs = self.q
         time_step = sim.GetTimeStep()
+        print("Time Step:", time_step)
   
 
         # Get the current state and control input
@@ -105,6 +106,31 @@ class RegulatorModel:
         A = I + time_step * A_c
         B = time_step * B_c
 
+        self.A = A
+        self.B = B
+        self.C = np.eye(num_states)
+
+        # Number of states
+        n = A.shape[0]
+
+        # Construct the controllability matrix
+        controllability_matrix = B
+        for i in range(1, n):
+            AB = np.linalg.matrix_power(A, i).dot(B)
+            controllability_matrix = np.hstack((controllability_matrix, AB))
+
+    # Compute the rank
+        rank_of_controllability = np.linalg.matrix_rank(controllability_matrix)
+
+        print("Controllability Matrix:")
+        print(controllability_matrix)
+        print("\nRank of Controllability Matrix:", rank_of_controllability)
+
+        if rank_of_controllability == n:
+            print("The system is controllable.")
+        else:
+            print("The system is not controllable.")
+
         # Compute A and B matrices
         # A= np.array([
         #     [1,0,-v_0*time_step*np.sin(theta_0)],
@@ -117,11 +143,9 @@ class RegulatorModel:
         #     [time_step*np.sin(theta_0),0],
         #     [0,time_step]
         # ])
-
-        # Updating Model matrices
         self.A = A
         self.B = B
-        self.C = np.eye(num_outputs)
+        self.C = np.eye(num_states)
 
 
  
@@ -277,6 +301,8 @@ class RegulatorModel:
         self.Q = Q
         self.R = R
     
+
+
 
 
 
