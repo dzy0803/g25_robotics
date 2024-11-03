@@ -12,11 +12,11 @@ class RegulatorModel:
         self.q = q #  output dimension
         self.m = m #  input dimension
         self.n = n #  state dimension
-        # self.P=None
+        self.P=None
 
-    #def compute_terminal_weight_matrix(self):
+    def compute_terminal_weight_matrix(self):
         
-        #self.P= solve_discrete_are(self.A, self.B, self.Q, self.R, balanced=True)
+        self.P= solve_discrete_are(self.A, self.B, self.Q, self.R, balanced=True)
   
 
     def compute_H_and_F(self, S_bar, T_bar, Q_bar, R_bar,target_state):
@@ -28,7 +28,7 @@ class RegulatorModel:
 
         G = -S_bar.T @ Q_bar @ np.kron(np.ones(self.N), target_state)
 
-        return H, F, G
+        return H, F,G
 
     def propagation_model_regulator_fixed_std(self):
         S_bar = np.zeros((self.N*self.q, self.N*self.m))
@@ -43,9 +43,9 @@ class RegulatorModel:
             # Verify submatrix shape aligns with S_bar target slice
                 S_bar[(k-1)*self.q:k*self.q, (k-j)*self.m:(k-j+1)*self.m] = submatrix
             T_bar[(k-1)*self.q:k*self.q, :self.n] = np.dot(self.C, np.linalg.matrix_power(self.A, k))
-            #if k == self.N:
-                #Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P
-            #else:
+            # if k == self.N:
+            #     Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P
+            # else:
             Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.Q
             R_bar[(k-1)*self.m:k*self.m, (k-1)*self.m:k*self.m] = self.R
 
@@ -303,6 +303,7 @@ class RegulatorModel:
         self.Q = Q
         self.R = R
     
+
 
 
 
