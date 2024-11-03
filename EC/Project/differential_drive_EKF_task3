@@ -153,7 +153,7 @@ def main():
     sim, dyn_model, num_joints = init_simulator(conf_file_name)
 
     # Adjusting floor friction
-    floor_friction = 1
+    floor_friction = 100
     sim.SetFloorFriction(floor_friction)
 
     # Getting time step
@@ -189,7 +189,16 @@ def main():
     N_mpc = 5
     Qcoeff = np.array([310, 310, 80.0])
     Rcoeff = 1
-    # N_mpc = 15
+
+    # N_mpc = 10
+    # Qcoeff = np.array([150, 580, 470])
+    # Rcoeff = np.array([0.65, 0.65])
+
+    # N_mpc = 1
+    # Qcoeff = np.array([130, 788, 680])
+    # Rcoeff = np.array([9, 9])
+
+    # N_mpc = 10
     # Qcoeff = np.array([400, 501, 599])
     # Rcoeff = np.array([1.45, 0.2])
 
@@ -218,7 +227,7 @@ def main():
     # Initialize a list to store all covariance matrices
     covariance_all = []
 
-    while current_time < 5:
+    while current_time < 10:
         # True state propagation (with process noise)
         ##### Advance simulation ##################################################################
         sim.Step(cmd, "torque")
@@ -293,7 +302,6 @@ def main():
         estimated_pos_all.append(est_pos)
         estimated_bearing_all.append(est_bearing)
 
-        # **Modification 3: Ensure EKF is updating correctly**
         # Optionally, add print statements for debugging
         if current_time % 10 < time_step:
             print(f"Time: {current_time:.2f}s")
@@ -315,8 +323,8 @@ def main():
         regulator.updateSystemMatrices(
             sim, cur_state_x_for_linearization, cur_u_for_linearization
         )
-
-        regulator.compute_terminal_weight_matrix()
+        # Comment out if not using P
+        # regulator.compute_terminal_weight_matrix()
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
         H, F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
         x0_mpc = np.hstack((base_pos_true[:2], base_bearing_true))
@@ -362,8 +370,11 @@ def main():
     estimated_bearing_all = np.array(estimated_bearing_all)
     covariance_all = np.array(covariance_all)  # Shape: (timesteps, 3, 3)
 
-    # **Modification 4: Correct covariance ellipse plotting**
-    # Ensure that the covariance at each timestep is used
+    # Define the directory to save plots
+    save_dir = r"C:/Users/ziyar/Desktop/UCL/Estimation and Control/Reports/Final Report/task 3"
+    os.makedirs(save_dir, exist_ok=True)  # Create directory if it doesn't exist
+
+    # First Plot: Robot Trajectory with EKF
     plt.figure(figsize=(10, 8))
     plt.plot(
         estimated_pos_all[:, 0],
@@ -384,8 +395,7 @@ def main():
         marker="x",
         s=100,
         label="Landmarks",
-    )  # Increased size for visibility
-
+    )
     plt.scatter(
         0,
         0,
@@ -403,120 +413,183 @@ def main():
     )
     ax = plt.gca()
 
-    # # Plot covariance ellipses at every 10th timestep
+    # Optional: Plot covariance ellipses at every 10th timestep
+    # Uncomment and define 'covariance_all' and 'plot_covariance_ellipse' if needed
     # for i in range(0, len(estimated_pos_all), 10):
     #     mean = estimated_pos_all[i]
     #     cov = covariance_all[i][:2, :2]  # Use stored covariance for timestep i
     #     plot_covariance_ellipse(mean, cov, ax, edgecolor='green', alpha=0.3)
 
-    plt.xlabel("X Position (m)")
-    plt.ylabel("Y Position (m)")
-    plt.title("Robot Trajectory with EKF")
-    plt.legend()
+    plt.xlabel("X Position (m)", fontsize=18)
+    plt.ylabel("Y Position (m)", fontsize=18)
+    plt.title("MPC-driven Robot Localization with EKF Integration", fontsize=22)
+    plt.legend(fontsize=16)
     plt.grid(True)
     plt.axis("equal")
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, "Robot_Trajectory_EKF.png"), dpi=300)
     plt.show()
+
+    # Second Plot: X Position and Y Position with MPC estimation
+    plt.figure(figsize=(12, 10))
 
     timesteps = np.arange(len(base_bearing_all)) * time_step
 
-    # Plotting X Position and Y Position with MPC estimation
-    plt.figure(figsize=(12, 10))
-
     # Subplot 1: X Position vs Time
     plt.subplot(3, 1, 1)
-    plt.plot(timesteps, estimated_pos_all[:, 0], linestyle='--', color='cyan', label='Estimated X Position', linewidth=2)
-    plt.plot(timesteps, base_pos_all[:, 0], label='True X Position', color='blue', linewidth=1)
-    plt.xlabel('Time (s)')
-    plt.ylabel('X Position')
-    plt.title('MPC Robot Trajectory to Origin')
-    plt.legend()
+    plt.plot(
+        timesteps,
+        estimated_pos_all[:, 0],
+        linestyle='--',
+        color='cyan',
+        label='Estimated X Position',
+        linewidth=2
+    )
+    plt.plot(
+        timesteps,
+        base_pos_all[:, 0],
+        label='True X Position',
+        color='blue',
+        linewidth=1
+    )
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('X Position', fontsize=18)
+    plt.title('MPC Robot Trajectory to Origin', fontsize=22)
+    plt.legend(fontsize=16)
     plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
 
     # Subplot 2: Y Position vs Time
     plt.subplot(3, 1, 2)
-    plt.plot(timesteps, estimated_pos_all[:, 1], linestyle='--', color='light green', label='Estimated Y Position', linewidth=2)
-    plt.plot(timesteps, base_pos_all[:, 1], label='True Y Position', color='green', linewidth=1)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Y Position')
-    plt.legend()
+    plt.plot(
+        timesteps,
+        estimated_pos_all[:, 1],
+        linestyle='--',
+        color='lightgreen',
+        label='Estimated Y Position',
+        linewidth=2
+    )
+    plt.plot(
+        timesteps,
+        base_pos_all[:, 1],
+        label='True Y Position',
+        color='green',
+        linewidth=1
+    )
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Y Position', fontsize=18)
+    plt.legend(fontsize=16)
     plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
 
     # Subplot 3: Orientation (Bearing) vs Time
     plt.subplot(3, 1, 3)
-    plt.plot(timesteps, estimated_bearing_all, linestyle='--', color='gold', label='Estimated Orientation (\u03B8)', linewidth=2)
-    plt.plot(timesteps, base_bearing_all, label='True Orientation (\u03B8)', color='brown', linewidth=1)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Orientation (θ)')
-    plt.legend()
-    plt.grid(True)
-
-    # Plotting Bearing Over Time
-    plt.figure(figsize=(10, 4))
     plt.plot(
         timesteps,
         estimated_bearing_all,
-        label="EKF Estimated Bearing",
-        linestyle="--",
-        linewidth=2,
+        linestyle='--',
+        color='gold',
+        label='Estimated Orientation (\u03B8)',
+        linewidth=2
     )
     plt.plot(
         timesteps,
         base_bearing_all,
-        label="True Bearing",
-        linewidth=2
+        label='True Orientation (\u03B8)',
+        color='brown',
+        linewidth=1
     )
-
-    plt.xlabel("Time (s)")
-    plt.ylabel("Bearing (radians)")
-    plt.title("Robot Bearing: True vs EKF Estimated")
-    plt.legend()
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Orientation (θ)', fontsize=18)
+    plt.legend(fontsize=16)
     plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    plt.tight_layout()
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, "MPC_Robot_Trajectory.png"), dpi=300)
     plt.show()
 
+    # # Third Plot: Bearing Over Time
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(
+    #     timesteps,
+    #     estimated_bearing_all,
+    #     label="EKF Estimated Bearing",
+    #     linestyle="--",
+    #     linewidth=2,
+    # )
+    # plt.plot(
+    #     timesteps,
+    #     base_bearing_all,
+    #     label="True Bearing",
+    #     linewidth=2
+    # )
 
+    # plt.xlabel("Time (s)", fontsize=18)
+    # plt.ylabel("Bearing (radians)", fontsize=18)
+    # plt.title("Robot Bearing: True vs EKF Estimated", fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # # Save the plot
+    # plt.savefig(os.path.join(save_dir, "Robot_Bearing_EKF.png"), dpi=300)
+    # plt.show()
+
+    # Uncomment and modify the following sections if you need additional plots
 
     # # Plotting Position Error Over Time
     # plt.figure(figsize=(10, 4))
     # plt.plot(timesteps, position_error_all, label='Position Error (m)', color='blue')
-    # plt.xlabel('Time (s)')
-    # plt.ylabel('Error (m)')
-    # plt.title('EKF Position Estimation Error Over Time')
-    # plt.legend()
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Error (m)', fontsize=18)
+    # plt.title('EKF Position Estimation Error Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
     # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "EKF_Position_Error.png"), dpi=300)
     # plt.show()
 
     # # Plotting Bearing Error Over Time
     # plt.figure(figsize=(10, 4))
     # plt.plot(timesteps, bearing_error_all, label='Bearing Error (rad)', color='orange')
-    # plt.xlabel('Time (s)')
-    # plt.ylabel('Error (radians)')
-    # plt.title('EKF Bearing Estimation Error Over Time')
-    # plt.legend()
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Error (radians)', fontsize=18)
+    # plt.title('EKF Bearing Estimation Error Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
     # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "EKF_Bearing_Error.png"), dpi=300)
     # plt.show()
 
-    # # Plotting Control Inputs Over Time
-    # plt.figure(figsize=(10, 4))
-    # plt.plot(timesteps, linear_vel_all, label='Linear Velocity (m/s)', color='purple')
-    # plt.plot(timesteps, angular_vel_all, label='Angular Velocity (rad/s)', color='brown')
-    # plt.xlabel('Time (s)')
-    # plt.ylabel('Velocity')
-    # plt.title('Control Inputs Over Time')
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
+    # Plotting Control Inputs Over Time
+    plt.figure(figsize=(10, 6))
+    plt.plot(timesteps, linear_vel_all, label='Linear Velocity (m/s)', color='purple')
+    plt.plot(timesteps, angular_vel_all, label='Angular Velocity (rad/s)', color='brown')
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Velocity', fontsize=18)
+    plt.title('Control Inputs Over Time', fontsize=22)
+    plt.legend(fontsize=16)
+    plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    plt.savefig(os.path.join(save_dir, "Control_Inputs.png"), dpi=300)
+    plt.show()
 
     # # Plotting State Covariance Over Time
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(timesteps, cov_pos_x_all, label='Covariance X Position', color='blue')
-    # plt.plot(timesteps, cov_pos_y_all, label='Covariance Y Position', color='orange')
-    # plt.plot(timesteps, cov_bearing_all, label='Covariance Bearing', color='green')
-    # plt.xlabel('Time (s)')
-    # plt.ylabel('Covariance')
-    # plt.title('EKF State Covariance Over Time')
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
-    
+    plt.figure(figsize=(10, 6))
+    plt.plot(timesteps, cov_pos_x_all, label='Covariance X Position', color='blue')
+    plt.plot(timesteps, cov_pos_y_all, label='Covariance Y Position', color='orange')
+    plt.plot(timesteps, cov_bearing_all, label='Covariance Bearing', color='green')
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Covariance', fontsize=18)
+    plt.title('EKF State Covariance Over Time', fontsize=22)
+    plt.legend(fontsize=16)
+    plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    plt.savefig(os.path.join(save_dir, "EKF_State_Covariance.png"), dpi=300)
+    plt.show()
+
+
 if __name__ == "__main__":
     main()
