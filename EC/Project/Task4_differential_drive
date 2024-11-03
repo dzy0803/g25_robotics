@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 import time
 import os
@@ -18,7 +19,7 @@ from simulation_and_control import (
     velocity_to_wheel_angular_velocity
 )
 import pinocchio as pin
-from regulator_model import RegulatorModel
+from regulator_model_Task4 import RegulatorModel
 
 # Import EKF classes from robot_localization_system
 from robot_localization_system import FilterConfiguration, Map, RobotEstimator
@@ -28,26 +29,24 @@ W_range = 0.5 ** 2  # Measurement noise variance (range measurements)
 W_bearing = (np.pi * 0.5 / 180.0) ** 2  # Measurement noise variance (bearing measurements)
 
 
-def landmark_range_observations(base_position, landmarks):
-    """
-    Generate noisy range measurements to each landmark.
+# def landmark_range_observations(base_position, landmarks):
+#     """
+#     Generate noisy range measurements to each landmark.
 
-    :param base_position: The current (x, y) position of the robot.
-    :param landmarks: An array of landmark positions.
-    :return: A NumPy array of noisy range measurements.
-    """
-    y = []
-    print("Generating range measurements:")
-    for lm in landmarks:
-        print(f"  Landmark at {lm}")
-        # True range measurement (with noise)
-        dx = lm[0] - base_position[0]
-        dy = lm[1] - base_position[1]
-        range_true = np.sqrt(dx**2 + dy**2)
-        range_noisy = range_true + np.random.normal(0, np.sqrt(W_range))
-        y.append(range_noisy)
-    y = np.array(y)
-    return y
+#     :param base_position: The current (x, y) position of the robot.
+#     :param landmarks: An array of landmark positions.
+#     :return: A NumPy array of noisy range measurements.
+#     """
+#     y = []
+#     for lm in landmarks:
+#         # True range measurement (with noise)
+#         dx = lm[0] - base_position[0]
+#         dy = lm[1] - base_position[1]
+#         range_true = np.sqrt(dx*2 + dy*2)
+#         range_noisy = range_true + np.random.normal(0, np.sqrt(W_range))
+#         y.append(range_noisy)
+#     y = np.array(y)
+#     return y
 
 
 def landmark_range_bearing_observations(base_position, base_bearing, landmarks):
@@ -61,18 +60,19 @@ def landmark_range_bearing_observations(base_position, base_bearing, landmarks):
     """
     y_range = []
     y_bearing = []
-    print("Generating range and bearing measurements:")
     for lm in landmarks:
-        print(f"  Landmark at {lm}")
         dx = lm[0] - base_position[0]
         dy = lm[1] - base_position[1]
-        range_true = np.sqrt(dx**2 + dy**2)
+        range_true = np.sqrt(dx*2 + dy*2)
         range_noisy = range_true + np.random.normal(0, np.sqrt(W_range))
         bearing_true = np.arctan2(dy, dx) - base_bearing
         bearing_true = wrap_angle(bearing_true)
+        # According to the latest changes
         bearing_noisy = wrap_angle(bearing_true + np.random.normal(0, np.sqrt(W_bearing)))
         y_range.append(range_noisy)
         y_bearing.append(bearing_noisy)
+        # y_range.append(range_true)
+        # y_bearing.append(bearing_true)
     y_range = np.array(y_range)
     y_bearing = np.array(y_bearing)
     return y_range, y_bearing
@@ -124,27 +124,27 @@ def init_simulator(conf_file_name):
     return sim, dyn_model, num_joints
 
 
-def plot_covariance_ellipse(mean, cov, ax, n_std=2.0, facecolor='none', **kwargs):
-    """
-    Plots a covariance ellipse.
+# def plot_covariance_ellipse(mean, cov, ax, n_std=2.0, facecolor='none', **kwargs):
+#     """
+#     Plots a covariance ellipse.
 
-    :param mean: The center of the ellipse (x, y).
-    :param cov: The 2x2 covariance matrix.
-    :param ax: The matplotlib axes to plot on.
-    :param n_std: The number of standard deviations to determine the ellipse's radii.
-    :param facecolor: The fill color of the ellipse.
-    :param kwargs: Additional keyword arguments for the Ellipse patch.
-    """
-    eigenvals, eigenvecs = np.linalg.eigh(cov)
-    order = eigenvals.argsort()[::-1]
-    eigenvals, eigenvecs = eigenvals[order], eigenvecs[:, order]
+#     :param mean: The center of the ellipse (x, y).
+#     :param cov: The 2x2 covariance matrix.
+#     :param ax: The matplotlib axes to plot on.
+#     :param n_std: The number of standard deviations to determine the ellipse's radii.
+#     :param facecolor: The fill color of the ellipse.
+#     :param kwargs: Additional keyword arguments for the Ellipse patch.
+#     """
+#     eigenvals, eigenvecs = np.linalg.eigh(cov)
+#     order = eigenvals.argsort()[::-1]
+#     eigenvals, eigenvecs = eigenvals[order], eigenvecs[:, order]
     
-    angle = np.degrees(np.arctan2(*eigenvecs[:,0][::-1]))
-    width, height = 2 * n_std * np.sqrt(eigenvals)
+#     angle = np.degrees(np.arctan2(*eigenvecs[:,0][::-1]))
+#     width, height = 2 * n_std * np.sqrt(eigenvals)
     
-    ellipse = Ellipse(xy=mean, width=width, height=height, angle=angle,
-                      facecolor=facecolor, **kwargs)
-    ax.add_patch(ellipse)
+#     ellipse = Ellipse(xy=mean, width=width, height=height, angle=angle,
+#                       facecolor=facecolor, **kwargs)
+#     ax.add_patch(ellipse)
 
 
 def main():
@@ -153,7 +153,7 @@ def main():
     sim, dyn_model, num_joints = init_simulator(conf_file_name)
 
     # Adjusting floor friction
-    floor_friction = 1
+    floor_friction = 100
     sim.SetFloorFriction(floor_friction)
 
     # Getting time step
@@ -172,6 +172,7 @@ def main():
     cov_bearing_all = []
     range_residuals_all = []
     bearing_residuals_all = []
+    covariance_all = []  # To store covariance matrices at each timestep
 
     # Initialize EKF
     filter_config = FilterConfiguration()
@@ -185,23 +186,37 @@ def main():
     num_controls = 2
 
     # Define the cost matrices
-    N_mpc = 5
+    N_mpc = 10
     Qcoeff = np.array([310, 310, 80.0])
-    Rcoeff = 10
-    # N_mpc = 15
+    Rcoeff = 1
+
+    # N_mpc = 10
+    # Qcoeff = np.array([150, 580, 470])
+    # Rcoeff = np.array([0.65, 0.65])
+
+    # N_mpc = 1
+    # Qcoeff = np.array([130, 788, 680])
+    # Rcoeff = np.array([9, 9])
+
+    # N_mpc = 10
     # Qcoeff = np.array([400, 501, 599])
     # Rcoeff = np.array([1.45, 0.2])
-
-    # Define the target state
-    target_pos = np.array([1.0, 1.5])
-    target_quat = np.array([0,0,np.pi/2,np.pi/2])
-    target_base_bearing_ = quaternion2bearing(target_quat[3], target_quat[0], target_quat[1], target_quat[2])
-    target_state = np.hstack((target_pos, target_base_bearing_))
-
 
     # Initialize the regulator model with positional arguments
     regulator = RegulatorModel(N_mpc, num_states, num_controls, num_states)
     regulator.setCostMatrices(Qcoeff, Rcoeff)
+
+
+    # Define the target state
+    angle = np.radians(90)
+    target_pos = np.array([0, 0])
+    target_quat = np.array([0,0,np.sin(angle / 2),np.cos(angle / 2)])
+    target_base_bearing_ = quaternion2bearing(target_quat[3], target_quat[0], target_quat[1], target_quat[2])
+    target_state = np.hstack((target_pos, target_base_bearing_))
+
+
+
+
 
     u_mpc = np.zeros(num_controls)
 
@@ -220,12 +235,11 @@ def main():
     # Retrieve landmarks from the Map object
     landmarks = map_obj.landmarks
 
-    # Print the landmarks being used
-    print("Landmarks being used for EKF:")
-    for idx, lm in enumerate(landmarks):
-        print(f"Landmark {idx + 1}: {lm}")
+    # *Modification 2: Store covariance matrices at each timestep*
+    # Initialize a list to store all covariance matrices
+    covariance_all = []
 
-    while current_time < 5:
+    while current_time < 10:
         # True state propagation (with process noise)
         ##### Advance simulation ##################################################################
         sim.Step(cmd, "torque")
@@ -234,9 +248,8 @@ def main():
         # Get the true state from the simulator
         base_pos_true = sim.bot[0].base_position
         base_ori_true = sim.bot[0].base_orientation
-        base_bearing_true = quaternion2bearing(
-            base_ori_true[3], base_ori_true[0], base_ori_true[1], base_ori_true[2]
-        )
+
+        base_bearing_true = quaternion2bearing(base_ori_true[3], base_ori_true[0], base_ori_true[1], base_ori_true[2])
         base_lin_vel_true = sim.bot[0].base_lin_vel
         base_ang_vel_true = sim.bot[0].base_ang_vel
 
@@ -274,13 +287,16 @@ def main():
         cov_pos_y_all.append(Sigma_est[1, 1])
         cov_bearing_all.append(Sigma_est[2, 2])
 
+        # Store the full covariance matrix
+        covariance_all.append(Sigma_est.copy())
+
         # Compute residuals
         predicted_measurements_range = []
         predicted_measurements_bearing = []
         for lm in landmarks:
             dx = lm[0] - x_est[0]
             dy = lm[1] - x_est[1]
-            range_pred = np.sqrt(dx**2 + dy**2)
+            range_pred = np.sqrt(dx*2 + dy*2)
             bearing_pred = np.arctan2(dy, dx) - x_est[2]
             bearing_pred = wrap_angle(bearing_pred)
             predicted_measurements_range.append(range_pred)
@@ -298,6 +314,13 @@ def main():
         estimated_pos_all.append(est_pos)
         estimated_bearing_all.append(est_bearing)
 
+        # Optionally, add print statements for debugging
+        if current_time % 10 < time_step:
+            print(f"Time: {current_time:.2f}s")
+            print(f"True Position: {base_pos_true}, True Bearing: {base_bearing_true:.2f} rad")
+            print(f"Estimated Position: {est_pos}, Estimated Bearing: {est_bearing:.2f} rad")
+            print(f"Covariance:\n{Sigma_est}\n")
+
         # Figure out what the controller should do next
         # MPC section/ low level controller section ##################################################################
 
@@ -312,10 +335,10 @@ def main():
         regulator.updateSystemMatrices(
             sim, cur_state_x_for_linearization, cur_u_for_linearization
         )
-
-        regulator.compute_terminal_weight_matrix()
+        # Comment out if not using P
+        # regulator.compute_terminal_weight_matrix()
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
-        H, F,G= regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar,target_state)
+        H, F,G = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar,target_state)
         x0_mpc = np.hstack((base_pos_true[:2], base_bearing_true))
         x0_mpc = x0_mpc.flatten()
         # Compute the optimal control sequence
@@ -346,6 +369,7 @@ def main():
             and keys[qKey]
             and sim.GetPyBulletClient().KEY_WAS_TRIGGERED
         ):
+            print("Exit key pressed. Exiting simulation loop.")
             break
 
         # Update current time
@@ -356,21 +380,33 @@ def main():
     base_bearing_all = np.array(base_bearing_all)
     estimated_pos_all = np.array(estimated_pos_all)
     estimated_bearing_all = np.array(estimated_bearing_all)
+    covariance_all = np.array(covariance_all)  # Shape: (timesteps, 3, 3)
 
-    # Plotting Trajectories with Covariance Ellipses
+    # Define the directory to save plots
+    save_dir = r"C:/Users/Roger/Pictures/Final/Task4"
+    os.makedirs(save_dir, exist_ok=True)  # Create directory if it doesn't exist
+
+    print("Position error in x for MPCT: ", base_pos_all[-1, 0] - target_pos[0])
+    print("Position error in y for MPCT: ", base_pos_all[-1, 1] - target_pos[1])
+    print("Position error in theta got MPCT: ", base_bearing_all[-1] - target_base_bearing_)
+
+    print("Position error in x for MPCK: ", estimated_pos_all[-1, 0] - target_pos[0])
+    print("Position error in y for MPCK: ", estimated_pos_all[-1, 1] - target_pos[1])
+    print("Position error in theta got MPCK: ", estimated_bearing_all[-1] - target_base_bearing_)
+
+    # First Plot: Robot Trajectory with EKF
     plt.figure(figsize=(10, 8))
-    plt.plot(
-        base_pos_all[:, 0],
-        base_pos_all[:, 1],
-        label="True Trajectory",
-        linewidth=2,
-    )
     plt.plot(
         estimated_pos_all[:, 0],
         estimated_pos_all[:, 1],
         label="EKF Estimated Trajectory",
-        linestyle="--",
         linewidth=2,
+    )
+    plt.plot(
+        base_pos_all[:, 0],
+        base_pos_all[:, 1],
+        label="True Trajectory",
+        linewidth=1.5,
     )
     plt.scatter(
         landmarks[:, 0],
@@ -379,7 +415,15 @@ def main():
         marker="x",
         s=100,
         label="Landmarks",
-    )  # Increased size for visibility
+    )
+    plt.scatter(
+        target_pos[0],
+        target_pos[1],
+        c="b",
+        marker="x",
+        s=100,
+        label="Target",
+    )
     plt.scatter(
         base_pos_all[0, 0],
         base_pos_all[0, 1],
@@ -389,117 +433,183 @@ def main():
     )
     ax = plt.gca()
 
-    # Plot covariance ellipses at every 10th timestep
-    for i in range(0, len(estimated_pos_all), 10):
-        mean = estimated_pos_all[i]
-        cov = Sigma_est[:2, :2]  # Ensure Sigma_est is updated correctly
-        plot_covariance_ellipse(mean, cov, ax, edgecolor='green', alpha=0.3)
+    # Optional: Plot covariance ellipses at every 10th timestep
+    # Uncomment and define 'covariance_all' and 'plot_covariance_ellipse' if needed
+    # for i in range(0, len(estimated_pos_all), 10):
+    #     mean = estimated_pos_all[i]
+    #     cov = covariance_all[i][:2, :2]  # Use stored covariance for timestep i
+    #     plot_covariance_ellipse(mean, cov, ax, edgecolor='green', alpha=0.3)
 
-    plt.xlabel("X Position (m)")
-    plt.ylabel("Y Position (m)")
-    plt.title("Robot Trajectory with EKF Covariance Ellipses")
-    plt.legend()
+    plt.xlabel("X Position (m)", fontsize=18)
+    plt.ylabel("Y Position (m)", fontsize=18)
+    plt.title("MPC-driven Robot Localization with EKF Integration", fontsize=22)
+    plt.legend(fontsize=16)
     plt.grid(True)
     plt.axis("equal")
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, "Robot_Trajectory_EKF.png"), dpi=300)
     plt.show()
 
-    # Plotting Bearing Over Time
-    plt.figure(figsize=(10, 4))
+    # Second Plot: X Position and Y Position with MPC estimation
+    plt.figure(figsize=(12, 10))
+
+    timesteps = np.arange(len(base_bearing_all)) * time_step
+
+    # Subplot 1: X Position vs Time
+    plt.subplot(3, 1, 1)
     plt.plot(
-        base_bearing_all, label="True Bearing", linewidth=2
+        timesteps,
+        estimated_pos_all[:, 0],
+        linestyle='--',
+        color='black',
+        label='Estimated X Position',
+        linewidth=2
     )
     plt.plot(
+        timesteps,
+        base_pos_all[:, 0],
+        label='True X Position',
+        color='green',
+        linewidth=1
+    )
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('X Position', fontsize=18)
+    plt.title('MPC Robot Trajectory to Origin', fontsize=22)
+    plt.legend(fontsize=16)
+    plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    # Subplot 2: Y Position vs Time
+    plt.subplot(3, 1, 2)
+    plt.plot(
+        timesteps,
+        estimated_pos_all[:, 1],
+        linestyle='--',
+        color='black',
+        label='Estimated Y Position',
+        linewidth=2
+    )
+    plt.plot(
+        timesteps,
+        base_pos_all[:, 1],
+        label='True Y Position',
+        color='green',
+        linewidth=1
+    )
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Y Position', fontsize=18)
+    plt.legend(fontsize=16)
+    plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    # Subplot 3: Orientation (Bearing) vs Time
+    plt.subplot(3, 1, 3)
+    plt.plot(
+        timesteps,
         estimated_bearing_all,
-        label="EKF Estimated Bearing",
-        linestyle="--",
-        linewidth=2,
+        linestyle='--',
+        color='black',
+        label='Estimated Orientation (\u03B8)',
+        linewidth=2
     )
-    plt.xlabel("Timestep")
-    plt.ylabel("Bearing (radians)")
-    plt.title("Robot Bearing: True vs EKF Estimated")
-    plt.legend()
+    plt.plot(
+        timesteps,
+        base_bearing_all,
+        label='True Orientation (\u03B8)',
+        color='green',
+        linewidth=1
+    )
+    plt.xlabel('Time (s)', fontsize=18)
+    plt.ylabel('Orientation (θ)', fontsize=18)
+    plt.legend(fontsize=16)
     plt.grid(True)
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    plt.tight_layout()
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, "MPC_Robot_Trajectory.png"), dpi=300)
     plt.show()
 
-    # Plotting Position Error Over Time
-    plt.figure(figsize=(10, 4))
-    plt.plot(position_error_all, label='Position Error (m)', color='blue')
-    plt.xlabel('Timestep')
-    plt.ylabel('Error (m)')
-    plt.title('EKF Position Estimation Error Over Time')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # # Third Plot: Bearing Over Time
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(
+    #     timesteps,
+    #     estimated_bearing_all,
+    #     label="EKF Estimated Bearing",
+    #     linestyle="--",
+    #     linewidth=2,
+    # )
+    # plt.plot(
+    #     timesteps,
+    #     base_bearing_all,
+    #     label="True Bearing",
+    #     linewidth=2
+    # )
 
-    # Plotting Bearing Error Over Time
-    plt.figure(figsize=(10, 4))
-    plt.plot(bearing_error_all, label='Bearing Error (rad)', color='orange')
-    plt.xlabel('Timestep')
-    plt.ylabel('Error (radians)')
-    plt.title('EKF Bearing Estimation Error Over Time')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # plt.xlabel("Time (s)", fontsize=18)
+    # plt.ylabel("Bearing (radians)", fontsize=18)
+    # plt.title("Robot Bearing: True vs EKF Estimated", fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # # Save the plot
+    # plt.savefig(os.path.join(save_dir, "Robot_Bearing_EKF.png"), dpi=300)
+    # plt.show()
 
-    # Plotting Control Inputs Over Time
-    plt.figure(figsize=(10, 4))
-    plt.plot(linear_vel_all, label='Linear Velocity (m/s)', color='purple')
-    plt.plot(angular_vel_all, label='Angular Velocity (rad/s)', color='brown')
-    plt.xlabel('Timestep')
-    plt.ylabel('Velocity')
-    plt.title('Control Inputs Over Time')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # Uncomment and modify the following sections if you need additional plots
 
-    # Plotting State Covariance Over Time
-    plt.figure(figsize=(10, 6))
-    plt.plot(cov_pos_x_all, label='Covariance X Position', color='blue')
-    plt.plot(cov_pos_y_all, label='Covariance Y Position', color='orange')
-    plt.plot(cov_bearing_all, label='Covariance Bearing', color='green')
-    plt.xlabel('Timestep')
-    plt.ylabel('Covariance')
-    plt.title('EKF State Covariance Over Time')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # # Plotting Position Error Over Time
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(timesteps, position_error_all, label='Position Error (m)', color='blue')
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Error (m)', fontsize=18)
+    # plt.title('EKF Position Estimation Error Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "EKF_Position_Error.png"), dpi=300)
+    # plt.show()
 
-    # Plotting Real-Time Trajectory (Optional)
-    # Uncomment the following block if you wish to enable real-time visualization
-    """
-    plt.ion()
-    fig, ax = plt.subplots(figsize=(10, 8))
-    trajectory_true, = ax.plot([], [], label='True Trajectory', linewidth=2)
-    trajectory_est, = ax.plot([], [], label='EKF Estimated Trajectory', linestyle='--', linewidth=2)
-    landmarks_plot = ax.scatter(landmarks[:, 0], landmarks[:, 1], c='r', marker='x', s=100, label='Landmarks')
-    start_plot = ax.scatter([], [], c='g', marker='o', label='Start')
-    ax.set_xlabel('X Position (m)')
-    ax.set_ylabel('Y Position (m)')
-    ax.set_title('Real-Time Robot Trajectory: True vs EKF Estimated')
-    ax.legend()
-    ax.grid(True)
-    ax.axis('equal')
+    # # Plotting Bearing Error Over Time
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(timesteps, bearing_error_all, label='Bearing Error (rad)', color='orange')
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Error (radians)', fontsize=18)
+    # plt.title('EKF Bearing Estimation Error Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "EKF_Bearing_Error.png"), dpi=300)
+    # plt.show()
 
-    for i in range(0, len(estimated_pos_all), 10):
-        trajectory_true.set_data(base_pos_all[:i+1, 0], base_pos_all[:i+1, 1])
-        trajectory_est.set_data(estimated_pos_all[:i+1, 0], estimated_pos_all[:i+1, 1])
-        start_plot.set_offsets([base_pos_all[0, 0], base_pos_all[0, 1]])
+    # # Plotting Control Inputs Over Time
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(timesteps, linear_vel_all, label='Linear Velocity (m/s)', color='purple')
+    # plt.plot(timesteps, angular_vel_all, label='Angular Velocity (rad/s)', color='brown')
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Velocity', fontsize=18)
+    # plt.title('Control Inputs Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "Control_Inputs.png"), dpi=300)
+    # plt.show()
 
-        # Remove old covariance patches
-        for patch in ax.patches:
-            patch.remove()
+    # # # Plotting State Covariance Over Time
+    # plt.figure(figsize=(10, 6))
+    # plt.plot(timesteps, cov_pos_x_all, label='Covariance X Position', color='blue')
+    # plt.plot(timesteps, cov_pos_y_all, label='Covariance Y Position', color='orange')
+    # plt.plot(timesteps, cov_bearing_all, label='Covariance Bearing', color='green')
+    # plt.xlabel('Time (s)', fontsize=18)
+    # plt.ylabel('Covariance', fontsize=18)
+    # plt.title('EKF State Covariance Over Time', fontsize=22)
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.savefig(os.path.join(save_dir, "EKF_State_Covariance.png"), dpi=300)
+    # plt.show()
 
-        # Add new covariance ellipses
-        mean = estimated_pos_all[i]
-        cov = Sigma_est[:2, :2]
-        plot_covariance_ellipse(mean, cov, ax, edgecolor='green', alpha=0.3)
-
-        plt.draw()
-        plt.pause(0.001)
-
-    plt.ioff()
-    plt.show()
-    """
 
 if __name__ == "__main__":
     main()
