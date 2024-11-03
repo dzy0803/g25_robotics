@@ -19,18 +19,21 @@ class FilterConfiguration(object):
 class Map(object):
     def __init__(self):
         # Define grid spacing and generate grid landmarks
-        grid_spacing = 10
-        grid_x = np.arange(-20, 21, grid_spacing) + 2 # from -20 to 20 inclusive
-        grid_y = np.arange(-20, 21, grid_spacing) + 3 # from -20 to 20 inclusive
-        self.landmarks = np.array([(x, y) for x in grid_x for y in grid_y])
+        # grid_spacing = 10
+        # grid_x = np.arange(-20, 21, grid_spacing) + 2 # from -20 to 20 inclusive
+        # grid_y = np.arange(-20, 21, grid_spacing) + 3 # from -20 to 20 inclusive
+        # self.landmarks = np.array([(x, y) for x in grid_x for y in grid_y])
 
-        # grid_spacing = 1
-        # grid_x = np.arange(-2, 3, grid_spacing)+ 2  # from -20 to 20 inclusive
-        # grid_y = np.arange(-2, 3, grid_spacing)+ 3   # from -20 to 20 inclusive
-                # self.landmarks = np.array([(x, y) for x in grid_x for y in grid_y])
+        grid_spacing = 1
+        grid_x = np.arange(-1, 1, grid_spacing) + 2.3  # from -20 to 20 inclusive
+        grid_y = np.arange(-1, 1, grid_spacing) + 3.3 # from -20 to 20 inclusive
+
+        self.landmarks = np.array([(x, y) for x in grid_x for y in grid_y])
 
         # # Generate grid landmarks
         # self.landmarks = np.array([[5, 10], [15, 5], [10, 15]])
+        # self.landmarks = np.array([[2, 1.5], [0, 2.5]])
+        self.num_landmarks = len(self.landmarks)
 
 
 class RobotEstimator(object):
