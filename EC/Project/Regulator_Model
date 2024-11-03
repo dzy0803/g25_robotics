@@ -19,14 +19,16 @@ class RegulatorModel:
         #self.P= solve_discrete_are(self.A, self.B, self.Q, self.R, balanced=True)
   
 
-    def compute_H_and_F(self, S_bar, T_bar, Q_bar, R_bar):
+    def compute_H_and_F(self, S_bar, T_bar, Q_bar, R_bar,target_state):
         # Compute H
         H = np.dot(S_bar.T, np.dot(Q_bar, S_bar)) + R_bar
 
         # Compute F
         F = np.dot(S_bar.T, np.dot(Q_bar, T_bar))
 
-        return H, F
+        G = -S_bar.T @ Q_bar @ np.kron(np.ones(self.N), target_state)
+
+        return H, F, G
 
     def propagation_model_regulator_fixed_std(self):
         S_bar = np.zeros((self.N*self.q, self.N*self.m))
