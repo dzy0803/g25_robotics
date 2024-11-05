@@ -147,7 +147,7 @@ def main():
 
     plt.figure(figsize=(10, 5))
     plt.scatter(Y_trimed, Y_pred, color='blue', alpha=0.5)
-    plt.plot([Y_trimed.min(), Y_trimed.max()], [Y_trimed.min(), Y_trimed.max()], color='red', linestyle='--', label='Perfect Prediction')
+    plt.plot([Y_trimed.min(), Y_trimed.max()], [Y_trimed.min(), Y_trimed.max()], color='red', linestyle='--', label='Ideal Fit Line')
     plt.xlabel("Y_True ")
     plt.ylabel("Y_Pred ")
     plt.title("Predicted Torque against True Torque (Noise=0.0)")
