@@ -146,12 +146,15 @@ def main():
    
 
     plt.figure(figsize=(10, 5))
-    plt.scatter(Y_trimed,Y_pred,color='blue',alpha=0.5)
+    plt.scatter(Y_trimed, Y_pred, color='blue', alpha=0.5)
     plt.plot([Y_trimed.min(), Y_trimed.max()], [Y_trimed.min(), Y_trimed.max()], color='red', linestyle='--', label='Perfect Prediction')
-    plt.xlabel("Y_true")
-    plt.ylabel("Y_pred")
+    plt.xlabel("Y_True ")
+    plt.ylabel("Y_Pred ")
+    plt.title("Predicted Torque against True Torque (Noise=0.0)")
+    plt.legend()
     plt.grid()
-    
+    plt.show()
+   
 
    
     # TODO plot the  torque prediction error for each joint (optional)
