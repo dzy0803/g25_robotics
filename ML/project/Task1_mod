@@ -1,0 +1,217 @@
+import os
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import matplotlib
+import matplotlib.pyplot as plt
+import json
+
+# from torch.amp import GradScaler, autocast
+# scaler = GradScaler()
+
+# # (Optional) Disable CUDA by setting environment variable before importing torch
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+# Set device to CPU explicitly
+#  GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#  CPU
+# device = torch.device("cpu")
+print(f"Using device: {device}")
+
+print(f"PyTorch Version: {torch.__version__}")
+print(f"NumPy Version: {np.__version__}")
+print(f"Matplotlib Version: {matplotlib.__version__}")
+print(np.__file__)
+
+# Constants
+m = 1.0  # Mass (kg)
+b = 10   # Friction coefficient
+k_p = 50  # Proportional gain
+k_d = 10  # Derivative gain
+dt = 0.01  # Time step
+num_samples = 1000  # Number of samples in dataset
+
+# Configuration for model parameters
+config = {
+    "learning_rate": 0.1,  # Changed from 0.00001 to 0.1
+    "batch_size": 32,
+    "epochs": 1000,
+    "layers": 2,  # Number of hidden layers
+    "nodes": [64, 64]  # Number of nodes in each hidden layer
+}
+
+# Create results directory
+results_dir = "C:/Users/ziyar/Desktop/UCL/Estimation and Control/Reports/Final Report/activity 1"
+os.makedirs(results_dir, exist_ok=True)
+
+# Save configuration
+with open(os.path.join(results_dir, 'config.json'), 'w') as f:
+    json.dump(config, f, indent=4)
+
+# Generate synthetic data for trajectory tracking
+t = np.linspace(0, 10, num_samples)
+q_target = np.sin(t)
+dot_q_target = np.cos(t)
+
+# Initial conditions for training data generation
+q = 0
+dot_q = 0
+X = []
+Y = []
+
+for i in range(num_samples):
+    # PD control output
+    tau = k_p * (q_target[i] - q) + k_d * (dot_q_target[i] - dot_q)
+    # Ideal motor dynamics
+    ddot_q_real = (tau - b * dot_q) / m
+
+    # Calculate error
+    ddot_q_ideal = tau / m
+    ddot_q_error = ddot_q_ideal - ddot_q_real
+
+    # Store data
+    X.append([q, dot_q, q_target[i], dot_q_target[i]])
+    Y.append(ddot_q_error)
+
+    # Update state
+    dot_q += ddot_q_real * dt
+    q += dot_q * dt
+
+# Convert data for PyTorch and allocate on CPU
+#  CPU
+# X_tensor = torch.tensor(X, dtype=torch.float32)
+# Y_tensor = torch.tensor(Y, dtype=torch.float32).view(-1, 1)
+#  GPU
+X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
+Y_tensor = torch.tensor(Y, dtype=torch.float32).view(-1, 1).to(device)
+
+# Dataset and DataLoader
+dataset = TensorDataset(X_tensor, Y_tensor)
+train_loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=True)
+# GPU ENSURES EFFICIENT DATA LOADING PREVENTS BOTTLE NECKING FOR GPU UTILISATION
+# train_loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=True, num_workers=4)
+
+# MLP Model Definitions
+class ShallowCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units=64):
+        super(ShallowCorrectorMLP, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+class DeepCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units=64):
+        super(DeepCorrectorMLP, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+# Initialize model with config parameters and allocate on CPU
+# Choose between Shallow and Deep MLP
+# model = ShallowCorrectorMLP(num_hidden_units=64).to(device)  # Shallow MLP
+model = DeepCorrectorMLP(num_hidden_units=64).to(device)  # Deep MLP
+
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])  # Learning rate updated to 0.1
+
+if __name__ == '__main__':
+    # Training Loop
+    train_losses = []
+
+    # Original Training Loop
+    for epoch in range(config['epochs']):
+        epoch_loss = 0
+        for data, target in train_loader:
+            # Move data and target to GPU
+            data, target = data.to(device), target.to(device)  # Move to GPU
+            # Data is already on CPU
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+        average_loss = epoch_loss / len(train_loader)
+        train_losses.append(average_loss)
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            print(f'Epoch {epoch + 1}/{config["epochs"]}, Loss: {average_loss:.6f}')
+
+    # Save training loss
+    np.save(os.path.join(results_dir, 'train_losses.npy'), np.array(train_losses))
+
+    # Testing Phase: Simulate trajectory tracking
+    q_test = 0
+    dot_q_test = 0
+    q_real = []
+    q_real_corrected = []
+
+    # Integration with only PD Control
+    for i in range(len(t)):
+        tau = k_p * (q_target[i] - q_test) + k_d * (dot_q_target[i] - dot_q_test)
+        ddot_q_real = (tau - b * dot_q_test) / m
+        dot_q_test += ddot_q_real * dt
+        q_test += dot_q_test * dt
+        q_real.append(q_test)
+
+    # Reset for corrected simulation
+    q_test = 0
+    dot_q_test = 0
+    for i in range(len(t)):
+        # Apply MLP correction
+        tau = k_p * (q_target[i] - q_test) + k_d * (dot_q_target[i] - dot_q_test)
+        # CPU
+        # inputs = torch.tensor([q_test, dot_q_test, q_target[i], dot_q_target[i]], dtype=torch.float32)
+        # GPU
+        inputs = torch.tensor([q_test, dot_q_test, q_target[i], dot_q_target[i]], dtype=torch.float32).to(device)
+        correction = model(inputs.unsqueeze(0)).item()
+        ddot_q_corrected = (tau - b * dot_q_test + correction) / m
+        dot_q_test += ddot_q_corrected * dt
+        q_test += dot_q_test * dt
+        q_real_corrected.append(q_test)
+
+    # Prepare parameter string for filename
+    param_str = f"lr_{config['learning_rate']}_bs_{config['batch_size']}_epochs_{config['epochs']}_layers_{config['layers']}_nodes_{'_'.join(map(str, config['nodes']))}"
+
+    # Plot trajectory results
+    plt.figure(figsize=(12, 6))
+    plt.plot(t, q_target, 'r-', label='Target')
+    plt.plot(t, q_real, 'b--', label='PD Only')
+    plt.plot(t, q_real_corrected, 'g:', label='PD + MLP Correction')
+    plt.title('Trajectory Tracking with and without MLP Correction', fontsize=22)
+    plt.xlabel('Time [s]', fontsize=18)
+    plt.ylabel('Position', fontsize=18)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=16)
+    plt.savefig(os.path.join(results_dir, f'trajectory_plot_{param_str}.png'), dpi=300)
+    plt.show()
+    plt.close()
+
+    # **Additional Plot: Trajectory Tracking Errors**
+    plt.figure(figsize=(12, 6))
+    plt.plot(t, q_target - np.array(q_real), 'b--', label='PD Only Error')
+    plt.plot(t, q_target - np.array(q_real_corrected), 'g:', label='PD + MLP Correction Error')
+    plt.title('Trajectory Tracking Error with and without MLP Correction', fontsize=22)
+    plt.xlabel('Time [s]', fontsize=18)
+    plt.ylabel('Position Error', fontsize=18)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=16)
+    plt.savefig(os.path.join(results_dir, f'error_plot_{param_str}.png'), dpi=300)
+    plt.show()
+    plt.close()
