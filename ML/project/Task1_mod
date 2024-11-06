@@ -36,15 +36,15 @@ num_samples = 1000  # Number of samples in dataset
 
 # Configuration for model parameters
 config = {
-    "learning_rate": 0.1,  # Changed from 0.00001 to 0.1
+    "learning_rate": 0.1,        # Changed from 0.00001 to 0.1
     "batch_size": 32,
     "epochs": 1000,
-    "layers": 2,  # Number of hidden layers
-    "nodes": [64, 64]  # Number of nodes in each hidden layer
+    "model_type": "shallow",         # Options: "shallow", "deep"
+    "no_hidden_nodes": 32             # Number of nodes in each hidden layer
 }
 
 # Create results directory
-results_dir = "C:/Users/ziyar/Desktop/UCL/Estimation and Control/Reports/Final Report/activity 1"
+results_dir = "C:/Users/ziyar/lab_sessions_COMP0245_PUBLIC/finals/task 1/results"
 os.makedirs(results_dir, exist_ok=True)
 
 # Save configuration
@@ -96,7 +96,7 @@ train_loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=True
 
 # MLP Model Definitions
 class ShallowCorrectorMLP(nn.Module):
-    def __init__(self, num_hidden_units=64):
+    def __init__(self, num_hidden_units=32):
         super(ShallowCorrectorMLP, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(4, num_hidden_units),
@@ -108,7 +108,7 @@ class ShallowCorrectorMLP(nn.Module):
         return self.layers(x)
 
 class DeepCorrectorMLP(nn.Module):
-    def __init__(self, num_hidden_units=64):
+    def __init__(self, num_hidden_units=32):
         super(DeepCorrectorMLP, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(4, num_hidden_units),
@@ -122,9 +122,12 @@ class DeepCorrectorMLP(nn.Module):
         return self.layers(x)
 
 # Initialize model with config parameters and allocate on CPU
-# Choose between Shallow and Deep MLP
-# model = ShallowCorrectorMLP(num_hidden_units=64).to(device)  # Shallow MLP
-model = DeepCorrectorMLP(num_hidden_units=64).to(device)  # Deep MLP
+if config["model_type"] == "shallow":
+    model = ShallowCorrectorMLP(num_hidden_units=config["no_hidden_nodes"]).to(device)  # Shallow MLP
+elif config["model_type"] == "deep":
+    model = DeepCorrectorMLP(num_hidden_units=config["no_hidden_nodes"]).to(device)  # Deep MLP
+else:
+    raise ValueError("Invalid model_type in config. Choose 'shallow' or 'deep'.")
 
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])  # Learning rate updated to 0.1
@@ -185,7 +188,16 @@ if __name__ == '__main__':
         q_real_corrected.append(q_test)
 
     # Prepare parameter string for filename
-    param_str = f"lr_{config['learning_rate']}_bs_{config['batch_size']}_epochs_{config['epochs']}_layers_{config['layers']}_nodes_{'_'.join(map(str, config['nodes']))}"
+    param_str = f"lr_{config['learning_rate']}_bs_{config['batch_size']}_epochs_{config['epochs']}_modeltype_{config['model_type']}_no_hidden_nodes_{config['no_hidden_nodes']}"
+
+    # Machine Learning Parameters as Text
+    ml_params = (
+        f"Learning Rate: {config['learning_rate']}\n"
+        f"Batch Size: {config['batch_size']}\n"
+        f"Epochs: {config['epochs']}\n"
+        f"Model Type: {config['model_type'].capitalize()}\n"
+        f"Nodes: {config['no_hidden_nodes']}"
+    )
 
     # Plot trajectory results
     plt.figure(figsize=(12, 6))
@@ -198,11 +210,12 @@ if __name__ == '__main__':
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.legend(fontsize=16)
+    plt.text(0.95, 0.05, ml_params, fontsize=16, verticalalignment='bottom', horizontalalignment='right', transform=plt.gca().transAxes, bbox=dict(facecolor='white', alpha=0.5))
     plt.savefig(os.path.join(results_dir, f'trajectory_plot_{param_str}.png'), dpi=300)
     plt.show()
     plt.close()
 
-    # **Additional Plot: Trajectory Tracking Errors**
+    # Additional Plot: Trajectory Tracking Errors
     plt.figure(figsize=(12, 6))
     plt.plot(t, q_target - np.array(q_real), 'b--', label='PD Only Error')
     plt.plot(t, q_target - np.array(q_real_corrected), 'g:', label='PD + MLP Correction Error')
@@ -212,6 +225,7 @@ if __name__ == '__main__':
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.legend(fontsize=16)
+    plt.text(0.95, 0.05, ml_params, fontsize=16, verticalalignment='bottom', horizontalalignment='right', transform=plt.gca().transAxes, bbox=dict(facecolor='white', alpha=0.5))
     plt.savefig(os.path.join(results_dir, f'error_plot_{param_str}.png'), dpi=300)
     plt.show()
     plt.close()
