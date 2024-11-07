@@ -1,0 +1,305 @@
+import numpy as np
+import time
+import os
+import matplotlib.pyplot as plt
+from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, SinusoidalReference, CartesianDiffKin
+import threading
+import pickle
+import torch.nn as nn
+import torch
+from sklearn.ensemble import RandomForestRegressor
+import joblib  # For saving and loading models
+
+# Set the model type: "neural_network" or "random_forest"
+neural_network_or_random_forest = "neural_network"  # Change to "neural_network" to use Neural Network models
+
+# === Added code: Define directories for Random Forest and Neural Network models ===
+# Define the directory for Random Forest models
+run_dir_rf = r"C:/Users/ziyar/lab_sessions_COMP0245_PUBLIC/finals/task3/results task 3/n_estimators_20_max_depth_10_random_state_42_n_jobs_-1"
+
+# Define the directory for Neural Network models
+run_dir_nn = r"C:/Users/ziyar/lab_sessions_COMP0245_PUBLIC/finals/task3/results task 3/ShallowMLP_64"  # Update this path as needed
+# === End of added code ===
+
+num_hidden_units = 64
+
+# === Modified code: Update the ShallowCorrectorMLP class to use self.model ===
+# Shallow MLP Model Definition
+class ShallowCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(ShallowCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(  # Changed from self.layers to self.model
+            nn.Linear(4, num_hidden_units),  # Input layer to hidden layer (4 inputs: time + goal positions)
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)   # Hidden layer to output layer
+        )
+
+    def forward(self, x):
+        return self.model(x)  # Changed from self.layers to self.model
+# === End of modified code ===
+
+# === Modified code: Update the DeepCorrectorMLP class to use self.model (if used) ===
+# Deep MLP Model Definition
+class DeepCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(DeepCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(  # Changed from self.layers to self.model
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x)  # Changed from self.layers to self.model
+# === End of modified code ===
+
+def main():
+    # Load the saved data
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+    if not os.path.isfile(filename):
+        print(f"Error: File {filename} not found in {script_dir}")
+        return
+    else:
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data
+        time_array = np.array(data['time'])            # Shape: (N,)
+        q_mes_all = np.array(data['q_mes_all'])        # Shape: (N, 7)
+        goal_positions = np.array(data['goal_positions'])  # Shape: (N, 3)
+
+        # Combine time and goal data to form input features
+        X = np.hstack((time_array.reshape(-1, 1), goal_positions))  # Shape: (N, 4)
+
+    # === Modified code: Set the run_dir based on the selected model type ===
+    if neural_network_or_random_forest == "random_forest":
+        run_dir = run_dir_rf  # Use Random Forest models directory
+    elif neural_network_or_random_forest == "neural_network":
+        run_dir = run_dir_nn  # Use Neural Network models directory
+    else:
+        print("Invalid model type specified. Please set neural_network_or_random_forest to 'neural_network' or 'random_forest'")
+        return
+    # === End of modified code ===
+
+    # === Added code: Ensure the run_dir exists ===
+    if not os.path.isdir(run_dir):
+        print(f"Error: Run directory {run_dir} does not exist.")
+        return
+    # === End of added code ===
+
+    # Load all the models in a list
+    models = []
+    if neural_network_or_random_forest == "neural_network":
+        for joint_idx in range(7):
+            # Instantiate the model
+            model = ShallowCorrectorMLP(num_hidden_units)
+            # Load the saved model
+            model_filename = os.path.join(run_dir, f'neuralq{joint_idx+1}.pt')  # Ensure models are named like 'neuralq1.pt', 'neuralq2.pt', etc.
+            if not os.path.isfile(model_filename):
+                print(f"Error: Neural Network model file {model_filename} not found.")
+                return
+            try:
+                # === Modified code: Set weights_only=True to address the FutureWarning ===
+                state_dict = torch.load(model_filename, weights_only=True)  # Set weights_only=True
+                # === End of modified code ===
+                model.load_state_dict(state_dict)
+            except RuntimeError as e:
+                print(f"RuntimeError while loading the model for Joint {joint_idx+1}: {e}")
+                return
+            model.eval()
+            models.append(model)
+            print(f"Loaded Neural Network model for Joint {joint_idx+1} from {model_filename}")  # Added comment
+    elif neural_network_or_random_forest == "random_forest":
+        for joint_idx in range(7):
+            # === Modified code: Load the saved Random Forest model from run_dir ===
+            model_filename = os.path.join(run_dir, f'rf_joint{joint_idx+1}.joblib')  # Updated to use run_dir
+            # === End of modified code ===
+            if not os.path.isfile(model_filename):
+                print(f"Error: Random Forest model file {model_filename} not found.")
+                return
+            try:
+                model = joblib.load(model_filename)
+            except Exception as e:
+                print(f"Error loading Random Forest model for Joint {joint_idx+1}: {e}")
+                return
+            models.append(model)
+            print(f"Loaded Random Forest model for Joint {joint_idx+1} from {model_filename}")  # Added comment
+    else:
+        print("Invalid model type specified. Please set neural_network_or_random_forest to 'neural_network' or 'random_forest'")
+        return
+
+    # Generate a new goal position
+    goal_position_bounds = {
+        'x': (0.6, 0.8),
+        'y': (-0.1, 0.1),
+        'z': (0.12, 0.12)
+    }
+    # Create a set of goal positions
+    number_of_goal_positions_to_test = 10
+    goal_positions = []
+    for i in range(number_of_goal_positions_to_test):
+        goal_positions.append([
+            np.random.uniform(*goal_position_bounds['x']),
+            np.random.uniform(*goal_position_bounds['y']),
+            np.random.uniform(*goal_position_bounds['z'])
+        ])
+
+    conf_file_name = "pandaconfig.json"  # Configuration file for the robot
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Configuration for the simulation
+    sim = pb.SimInterface(conf_file_name, conf_file_path_ext=root_dir)  # Initialize simulation interface
+
+    # Get active joint names from the simulation
+    ext_names = sim.getNameActiveJoints()
+    ext_names = np.expand_dims(np.array(ext_names), axis=0)  # Adjust the shape for compatibility
+
+    source_names = ["pybullet"]  # Define the source for dynamic modeling
+
+    # Create a dynamic model of the robot
+    dyn_model = PinWrapper(conf_file_name, "pybullet", ext_names, source_names, False, 0, root_dir)
+    num_joints = dyn_model.getNumberofActuatedJoints()
+
+    controlled_frame_name = "panda_link8"
+    init_joint_angles = sim.GetInitMotorAngles()
+    init_cartesian_pos, init_R = dyn_model.ComputeFK(init_joint_angles, controlled_frame_name)
+    print(f"Initial joint angles: {init_joint_angles}")
+
+    # Command and control loop
+    cmd = MotorCommands()  # Initialize command structure for motors
+
+    # PD controller gains
+    kp = 1000  # Proportional gain
+    kd = 100   # Derivative gain
+
+    # Get joint velocity limits
+    joint_vel_limits = sim.GetBotJointsVelLimit()
+
+    time_step = sim.GetTimeStep()
+    # Generate test time array
+    test_time_array = np.arange(time_array.min(), time_array.max(), time_step)
+
+    # === Added code: Initialize data storage for predicted joint positions ===
+    all_predicted_joint_positions = {joint_idx: [] for joint_idx in range(7)}  # Dictionary to store predictions
+    # === End of added code ===
+
+    for goal_position in goal_positions:
+        print("Testing new goal position------------------------------------")
+        print(f"Goal position: {goal_position}")
+
+        # Initialize the simulation
+        sim.ResetPose()
+        current_time = 0  # Initialize current time
+
+        # Create test input features
+        test_goal_positions = np.tile(goal_position, (len(test_time_array), 1))  # Shape: (num_points, 3)
+        test_input = np.hstack((test_time_array.reshape(-1, 1), test_goal_positions))  # Shape: (num_points, 4)
+
+        # Predict joint positions for the new goal position
+        predicted_joint_positions_over_time = np.zeros((len(test_time_array), 7))  # Shape: (num_points, 7)
+
+        for joint_idx in range(7):
+            if neural_network_or_random_forest == "neural_network":
+                # Prepare the test input
+                test_input_tensor = torch.from_numpy(test_input).float()  # Shape: (num_points, 4)
+
+                # Predict joint positions using the neural network
+                with torch.no_grad():
+                    predictions = models[joint_idx](test_input_tensor).numpy().flatten()  # Shape: (num_points,)
+            elif neural_network_or_random_forest == "random_forest":
+                # Predict joint positions using the Random Forest
+                predictions = models[joint_idx].predict(test_input)  # Shape: (num_points,)
+            else:
+                print("Invalid model type specified during prediction.")
+                return
+
+            # Store the predicted joint positions
+            predicted_joint_positions_over_time[:, joint_idx] = predictions
+
+        # === Added code: Append predictions to the data storage ===
+        for joint_idx in range(7):
+            all_predicted_joint_positions[joint_idx].extend(predicted_joint_positions_over_time[:, joint_idx])
+        # === End of added code ===
+
+        # Compute qd_des_over_time by numerically differentiating the predicted joint positions
+        qd_des_over_time = np.gradient(predicted_joint_positions_over_time, axis=0, edge_order=2) / time_step
+        # Clip the joint velocities to the joint limits
+        qd_des_over_time_clipped = np.clip(qd_des_over_time, -np.array(joint_vel_limits), np.array(joint_vel_limits))
+
+        # Data collection loop
+        while current_time < test_time_array.max():
+            # Measure current state
+            q_mes = sim.GetMotorAngles(0)
+            qd_mes = sim.GetMotorVelocities(0)
+            qdd_est = sim.ComputeMotorAccelerationTMinusOne(0)
+
+            # Get the index corresponding to the current time
+            current_index = int(current_time / time_step)
+            if current_index >= len(test_time_array):
+                current_index = len(test_time_array) - 1
+
+            # Get q_des and qd_des_clip from predicted data
+            q_des = predicted_joint_positions_over_time[current_index, :]  # Desired joint angles
+            qd_des_clip = qd_des_over_time_clipped[current_index, :]      # Desired joint velocities
+
+            # Control command
+            tau_cmd = feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_des, qd_des_clip, kp, kd)
+            cmd.SetControlCmd(tau_cmd, ["torque"] * 7)  # Set the torque command
+            sim.Step(cmd, "torque")  # Simulation step with torque command
+
+            # Keyboard event handling
+            keys = sim.GetPyBulletClient().getKeyboardEvents()
+            qKey = ord('q')
+
+            # Exit logic with 'q' key
+            if qKey in keys and keys[qKey] & sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
+                print("Exiting simulation.")
+                break
+
+            # Time management
+            time.sleep(time_step)  # Control loop timing
+            current_time += time_step
+
+        # After the trajectory, compute the final cartesian position
+        final_predicted_joint_positions = predicted_joint_positions_over_time[-1, :]  # Shape: (7,)
+        final_cartesian_pos, final_R = dyn_model.ComputeFK(final_predicted_joint_positions, controlled_frame_name)
+        print(f"Final computed cartesian position: {final_cartesian_pos}")
+        # Compute position error
+        position_error = np.linalg.norm(final_cartesian_pos - goal_position)
+        print(f"Position error between computed position and goal: {position_error}")
+
+    # === Added code: Plotting the predicted joint trajectories ===
+    plot_dir = run_dir  # Set plot_dir to run_dir to save plots in the same directory as models
+    for joint_idx in range(7):
+        plt.figure(figsize=(10, 6))
+        plt.plot(all_predicted_joint_positions[joint_idx], label=f'Joint {joint_idx+1}')
+        plt.xlabel('Time Steps', fontsize=18)  # Increased font size for better readability
+        plt.ylabel('Joint Position', fontsize=18)
+        plt.title(f'Predicted Joint {joint_idx+1} Trajectory ({neural_network_or_random_forest})', fontsize=22)
+        plt.legend(fontsize=16)
+        plt.grid(True)
+        plt.tick_params(axis='both', which='major', labelsize=16)
+        # Save the plot
+        plot_filename = os.path.join(plot_dir, f'joint_{joint_idx+1}_trajectory_{neural_network_or_random_forest}.png')
+        plt.savefig(plot_filename, dpi=300)
+        plt.close()
+        print(f'Joint {joint_idx+1} trajectory plot saved as {plot_filename}')
+    # === End of added code ===
+
+    # === Added code: Analyze and compare smoothness (Optional) ===
+    # Note: Analysis is typically done outside the script, but you can add print statements or logging if needed.
+    # For example, you can compute the smoothness metric like standard deviation of the velocity.
+
+    # Example of calculating and printing smoothness for each joint
+    for joint_idx in range(7):
+        joint_positions = np.array(all_predicted_joint_positions[joint_idx])
+        joint_velocities = np.gradient(joint_positions) / time_step
+        smoothness = np.std(joint_velocities)
+        print(f"Joint {joint_idx+1} smoothness (std of velocity): {smoothness:.4f}")
+    # === End of added code ===
+
+if __name__ == '__main__':
+    main()
