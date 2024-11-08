@@ -1,0 +1,435 @@
+import pickle
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+import joblib  # For saving and loading models
+from sklearn.metrics import r2_score, mean_squared_error  # Import R² and MSE metrics
+from sklearn.tree import export_graphviz
+import graphviz
+import json  # For saving config as JSON
+
+# Set the visualization flag
+visualize = True  # Set to True to enable visualization, False to disable
+training_flag = True  # Set to True to train the models, False to skip training
+test_cartesian_accuracy_flag = True  # Set to True to test the model with a new goal position, False to skip testing
+
+# Define configuration dictionary for hyperparameters
+config = {
+    "n_estimators": 20,    # Number of trees
+    "max_depth": 6,      # Maximum depth of the tree
+    "random_state": 42,     # Random state for reproducibility
+    "n_jobs": -1            # Use all available cores
+}
+
+if training_flag:
+    # Load the saved data
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+
+    # Define base results directory
+    results_dir = os.path.join(script_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+    # Create a parameter string based on the config dictionary
+    param_str = f"n_estimators_{config['n_estimators']}_max_depth_{config['max_depth']}_random_state_{config['random_state']}_n_jobs_{config['n_jobs']}"
+    
+    # Define run-specific directory within results_dir
+    run_dir = os.path.join(results_dir, param_str)
+    os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+    # Save configuration details for reproducibility
+    config_path = os.path.join(run_dir, 'config.json')
+    with open(config_path, 'w') as config_file:
+        json.dump(config, config_file, indent=4)
+    print(f"Configuration saved to {config_path}")
+
+    # Initialize metrics dictionary
+    metrics = {
+        "training": {
+            "joint_metrics": {}
+        },
+        "testing": {
+            "position_errors": []
+        }
+    }
+
+    # Check if the data file exists
+    if not os.path.isfile(filename):
+        print(f"Error: File {filename} not found in {script_dir}")
+    else:
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data
+        time_array = np.array(data['time'])            # Shape: (N,)
+        q_mes_all = np.array(data['q_mes_all'])        # Shape: (N, 7)
+        goal_positions = np.array(data['goal_positions'])  # Shape: (N, 3)
+
+        # Optional: Normalize time data for better performance
+        # time_array = (time_array - time_array.min()) / (time_array.max() - time_array.min())
+
+        # Combine time and goal data to form the input features
+        X = np.hstack((time_array.reshape(-1, 1), goal_positions))  # Shape: (N, 4)
+
+        # Split ratio
+        split_ratio = 0.8
+
+        # Initialize lists to hold training and test data for all joints
+        x_train_list = []
+        x_test_list = []
+        y_train_list = []
+        y_test_list = []
+
+        for joint_idx in range(7):
+            # Extract joint data
+            y = q_mes_all[:, joint_idx]  # Shape: (N,)
+
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, train_size=split_ratio, shuffle=True, random_state=config["random_state"]
+            )
+
+            # Store split data
+            x_train_list.append(X_train)
+            x_test_list.append(X_test)
+            y_train_list.append(y_train)
+            y_test_list.append(y_test)
+
+            # Initialize the Random Forest regressor with config hyperparameters
+            rf_model = RandomForestRegressor(
+                n_estimators=config["n_estimators"],
+                max_depth=config["max_depth"],
+                random_state=config["random_state"],
+                n_jobs=config["n_jobs"]
+            )
+
+            # Train the model
+            rf_model.fit(X_train, y_train)
+
+            # Evaluate on training set
+            y_train_pred = rf_model.predict(X_train)
+            train_mse = mean_squared_error(y_train, y_train_pred)
+            train_r2 = r2_score(y_train, y_train_pred)
+
+            # Evaluate on test set
+            y_test_pred = rf_model.predict(X_test)
+            test_mse = mean_squared_error(y_test, y_test_pred)
+            test_r2 = r2_score(y_test, y_test_pred)
+
+            # Store metrics for the current joint
+            metrics["training"]["joint_metrics"][f"joint_{joint_idx+1}"] = {
+                "train_mse": train_mse,
+                "test_mse": test_mse,
+                "train_r2": train_r2,
+                "test_r2": test_r2
+            }
+
+            # Print MSE and R² scores
+            print(f'\nJoint {joint_idx+1}')
+            print(f'Train MSE: {train_mse:.6f}')
+            print(f'Test MSE: {test_mse:.6f}')
+            print(f'Train R²: {train_r2:.6f}')
+            print(f'Test R²: {test_r2:.6f}')
+
+            # Save the trained model
+            model_filename = os.path.join(run_dir, f'rf_joint{joint_idx+1}.joblib')
+            joblib.dump(rf_model, model_filename)
+            print(f'Model for Joint {joint_idx+1} saved as {model_filename}')
+
+            # Visualization (if enabled)
+            if visualize:
+                print(f'Visualizing results for Joint {joint_idx+1}...')
+
+                # Plot true vs predicted positions on the test set
+                sorted_indices = np.argsort(X_test[:, 0])
+                X_test_sorted = X_test[sorted_indices]
+                y_test_sorted = y_test[sorted_indices]
+                y_test_pred_sorted = y_test_pred[sorted_indices]
+
+                plt.figure(figsize=(10, 5))
+                plt.plot(X_test_sorted[:, 0], y_test_sorted, label='True Joint Positions')
+                plt.plot(X_test_sorted[:, 0], y_test_pred_sorted, label='Predicted Joint Positions', linestyle='--')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Joint Position (rad)')
+                plt.title(f'Joint {joint_idx+1} Position Prediction on Test Set')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+
+                # Save the plot as a PNG file with dpi=300
+                plot_filename = os.path.join(run_dir, f'joint_{joint_idx+1}_prediction.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+                print(f'Plot saved as {plot_filename}')
+
+                # **Optional:** Visualize the tree structure
+                # Uncomment the following block if you wish to visualize individual trees
+                
+                # Export the first tree to DOT format and visualize
+                if joint_idx == 0:  # For example, visualize only the first tree
+                    # Extract the first tree
+                    tree = rf_model.estimators_[0]
+
+                    dot_data = export_graphviz(
+                        tree,
+                        out_file=None,
+                        feature_names=['Time', 'Goal_X', 'Goal_Y', 'Goal_Z'],
+                        filled=True,
+                        rounded=True,
+                        special_characters=True
+                    )
+                    graph = graphviz.Source(dot_data)
+                    tree_plot_filename = os.path.join(run_dir, f'rf_joint{joint_idx+1}_tree')
+                    graph.render(filename=tree_plot_filename, format='pdf', cleanup=True)
+                    print(f'Tree visualization saved as {tree_plot_filename}.pdf')
+                
+
+        print("Training and visualization completed.")
+
+        # Save metrics after training to metrics.txt
+        metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+        with open(metrics_txt_path, 'w') as metrics_file:
+            metrics_file.write("=== Training Metrics ===\n\n")
+            for joint, joint_metrics in metrics["training"]["joint_metrics"].items():
+                metrics_file.write(f"{joint}:\n")
+                metrics_file.write(f"  Train MSE: {joint_metrics['train_mse']:.6f}\n")
+                metrics_file.write(f"  Test MSE: {joint_metrics['test_mse']:.6f}\n")
+                metrics_file.write(f"  Train R²: {joint_metrics['train_r2']:.6f}\n")
+                metrics_file.write(f"  Test R²: {joint_metrics['test_r2']:.6f}\n\n")
+        print(f"Training metrics saved to {metrics_txt_path}")
+
+        # **Additional Analysis: Tree Depth and Node Count**
+        tree_metrics_path = os.path.join(run_dir, 'tree_metrics.txt')
+        with open(tree_metrics_path, 'w') as tree_metrics_file:
+            tree_metrics_file.write("=== Individual Tree Metrics ===\n\n")
+            for idx, tree in enumerate(rf_model.estimators_):
+                tree_depth = tree.tree_.max_depth
+                num_nodes = tree.tree_.node_count
+                tree_metrics_file.write(f"Tree {idx + 1}: Depth = {tree_depth}, Number of Nodes = {num_nodes}\n")
+        print(f"Individual tree metrics saved to {tree_metrics_path}")
+
+        # **Optional:** Visualize a sample tree
+        
+        # Visualize the first tree
+        tree = rf_model.estimators_[0]
+        dot_data = export_graphviz(
+            tree,
+            out_file=None,
+            feature_names=['Time', 'Goal_X', 'Goal_Y', 'Goal_Z'],  # Replace with your actual feature names
+            filled=True,
+            rounded=True,
+            special_characters=True
+        )
+        graph = graphviz.Source(dot_data)
+        graph.render(filename=os.path.join(run_dir, 'tree_1'), format='pdf', cleanup=True)
+        print("Sample tree visualization saved as tree_1.pdf")
+
+if test_cartesian_accuracy_flag:
+
+    if not training_flag:
+        # Load the saved data
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+
+        # Define base results directory
+        results_dir = os.path.join(script_dir, 'results')
+        os.makedirs(results_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+        # Create a parameter string based on the config dictionary
+        param_str = f"n_estimators_{config['n_estimators']}_max_depth_{config['max_depth']}_random_state_{config['random_state']}_n_jobs_{config['n_jobs']}"
+        
+        # Define run-specific directory within results_dir
+        run_dir = os.path.join(results_dir, param_str)
+        os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+        # Save configuration details for reproducibility if needed
+        config_path = os.path.join(run_dir, 'config.json')
+        if not os.path.isfile(config_path):
+            with open(config_path, 'w') as config_file:
+                json.dump(config, config_file, indent=4)
+            print(f"Configuration saved to {config_path}")
+
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data
+        time_array = np.array(data['time'])            # Shape: (N,)
+
+    # Load metrics if training_flag was False
+    if not training_flag:
+        metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+        if os.path.isfile(metrics_txt_path):
+            with open(metrics_txt_path, 'a') as metrics_file:
+                metrics_file.write("\n=== Testing Metrics ===\n\n")
+        else:
+            # Initialize metrics dictionary if not present
+            metrics = {
+                "training": {
+                    "joint_metrics": {}
+                },
+                "testing": {
+                    "position_errors": []
+                }
+            }
+            print("Metrics file not found. It will be created.")
+
+    # Create the parameter string (if training_flag is False and run_dir was not created)
+    param_str = f"n_estimators_{config['n_estimators']}_max_depth_{config['max_depth']}_random_state_{config['random_state']}_n_jobs_{config['n_jobs']}"
+    
+    # Ensure run_dir exists
+    run_dir = os.path.join(results_dir, param_str)
+    os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+    # Load all the models into a list
+    models = []
+    for joint_idx in range(7):
+        # Load the saved model
+        model_filename = os.path.join(run_dir, f'rf_joint{joint_idx+1}.joblib')
+
+        try:
+            rf_model = joblib.load(model_filename)
+        except FileNotFoundError:
+            print(f"Cannot find file {model_filename}")
+            print("Please ensure the models are trained and saved correctly.")
+            quit()
+
+        models.append(rf_model)
+
+    # Generate new goal positions
+    goal_position_bounds = {
+        'x': (0.6, 0.8),
+        'y': (-0.1, 0.1),
+        'z': (0.12, 0.12)
+    }
+    # Create a set of goal positions
+    number_of_goal_positions_to_test = 10
+    goal_positions = []
+    for i in range(number_of_goal_positions_to_test):
+        goal_positions.append([
+            np.random.uniform(*goal_position_bounds['x']),
+            np.random.uniform(*goal_position_bounds['y']),
+            np.random.uniform(*goal_position_bounds['z'])
+        ])
+
+    # Generate test time array
+    test_time_array = np.linspace(time_array.min(), time_array.max(), 100)  # For example, 100 time steps
+
+    # Initialize the dynamic model
+    from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, CartesianDiffKin
+
+    conf_file_name = "pandaconfig.json"  # Configuration file for the robot
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    # Adjust root directory if necessary
+    name_current_directory = "tests"
+    root_dir = root_dir.replace(name_current_directory, "")
+    # Initialize simulation interface
+    sim = pb.SimInterface(conf_file_name, conf_file_path_ext=root_dir)
+
+    # Get active joint names from the simulation
+    ext_names = sim.getNameActiveJoints()
+    ext_names = np.expand_dims(np.array(ext_names), axis=0)  # Adjust the shape for compatibility
+
+    source_names = ["pybullet"]  # Define the source for dynamic modeling
+
+    # Create a dynamic model of the robot
+    dyn_model = PinWrapper(conf_file_name, "pybullet", ext_names, source_names, False, 0, root_dir)
+    num_joints = dyn_model.getNumberofActuatedJoints()
+
+    controlled_frame_name = "panda_link8"
+    init_joint_angles = sim.GetInitMotorAngles()
+    init_cartesian_pos, init_R = dyn_model.ComputeFK(init_joint_angles, controlled_frame_name)
+    print(f"Initial joint angles: {init_joint_angles}")
+
+    # Open the metrics.txt file for appending testing metrics
+    metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+    with open(metrics_txt_path, 'a') as metrics_file:
+        metrics_file.write("=== Testing Metrics ===\n\n")
+
+        for goal_idx, goal_position in enumerate(goal_positions, start=1):
+            print(f"\nTesting new goal position {goal_idx}------------------------------------")
+            print(f"Goal position: {goal_position}")
+
+            # Create test input features
+            test_goal_positions = np.tile(goal_position, (len(test_time_array), 1))  # Shape: (100, 3)
+            test_input = np.hstack((test_time_array.reshape(-1, 1), test_goal_positions))  # Shape: (100, 4)
+
+            # Predict joint positions for the new goal position
+            predicted_joint_positions_over_time = np.zeros((len(test_time_array), 7))  # Shape: (num_points, 7)
+
+            for joint_idx in range(7):
+                # Predict joint positions
+                y_pred = models[joint_idx].predict(test_input)  # Shape: (num_points,)
+                # Store the predicted joint positions
+                predicted_joint_positions_over_time[:, joint_idx] = y_pred
+
+            # Get the final predicted joint positions (at the last time step)
+            final_predicted_joint_positions = predicted_joint_positions_over_time[-1, :]  # Shape: (7,)
+
+            # Compute forward kinematics
+            final_cartesian_pos, final_R = dyn_model.ComputeFK(final_predicted_joint_positions, controlled_frame_name)
+
+            print(f"Computed cartesian position: {final_cartesian_pos}")
+            print(f"Predicted joint positions at final time step: {final_predicted_joint_positions}")
+
+            # Compute position error
+            position_error = np.linalg.norm(final_cartesian_pos - goal_position)
+            print(f"Position error between computed position and goal: {position_error}")
+
+            # Store position error in metrics and write to metrics.txt
+            metrics_file.write(f"Goal Position {goal_idx}:\n")
+            metrics_file.write(f"  Goal Position: {goal_position}\n")
+            metrics_file.write(f"  Computed Cartesian Position: {final_cartesian_pos.tolist()}\n")
+            metrics_file.write(f"  Position Error: {position_error:.6f}\n\n")
+
+            # Optional: Visualize the cartesian trajectory over time
+            if visualize:
+                cartesian_positions_over_time = []
+                for i in range(len(test_time_array)):
+                    joint_positions = predicted_joint_positions_over_time[i, :]
+                    cartesian_pos, _ = dyn_model.ComputeFK(joint_positions, controlled_frame_name)
+                    cartesian_positions_over_time.append(cartesian_pos.copy())
+
+                cartesian_positions_over_time = np.array(cartesian_positions_over_time)  # Shape: (num_points, 3)
+
+                # Plot x, y, z positions over time
+                plt.figure(figsize=(10, 5))
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 0], label='X Position')
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 1], label='Y Position')
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 2], label='Z Position')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Cartesian Position (m)')
+                plt.title(f'Predicted Cartesian Positions Over Time for Goal {goal_idx}')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+
+                # Save the plot as a PNG file with dpi=300
+                plot_filename = os.path.join(run_dir, f'goal_{goal_idx}_cartesian_positions.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+                print(f'Cartesian trajectory plot saved as {plot_filename}')
+
+                # Plot the trajectory in 3D space
+                from mpl_toolkits.mplot3d import Axes3D  # Ensure this is imported here
+
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                ax.plot(cartesian_positions_over_time[:, 0], cartesian_positions_over_time[:, 1], cartesian_positions_over_time[:, 2], label='Predicted Trajectory')
+                ax.scatter(goal_position[0], goal_position[1], goal_position[2], color='red', label='Goal Position')
+                ax.set_xlabel('X Position (m)')
+                ax.set_ylabel('Y Position (m)')
+                ax.set_zlabel('Z Position (m)')
+                ax.set_title(f'Predicted Cartesian Trajectory for Goal {goal_idx}')
+                ax.legend()
+                plt.tight_layout()
+
+                # Save the 3D plot as a PNG file with dpi=300
+                plot_3d_filename = os.path.join(run_dir, f'goal_{goal_idx}_3D_trajectory.png')
+                plt.savefig(plot_3d_filename, dpi=300)
+                plt.close()
+                print(f'3D trajectory plot saved as {plot_3d_filename}')
+
+    print("Testing completed.")
+    print(f"All metrics and plots saved in directory: {run_dir}")  
