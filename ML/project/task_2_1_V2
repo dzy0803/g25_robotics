@@ -1,0 +1,558 @@
+import pickle
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+import os
+import matplotlib.pyplot as plt
+import json  # For saving config as JSON
+
+# Set the visualization flag
+visualize = True  # Set to True to enable visualization, False to disable
+training_flag = True  # Set to True to train the models, False to skip training
+test_cartesian_accuracy_flag = True  # Set to True to test the model with a new goal position, False to skip testing
+
+# Define configuration dictionary for hyperparameters 
+config = {
+    "model_type": "shallow",      # "shallow" or "deep" 
+    "hidden_units": 128,       # Number of hidden units in MLP
+    "epochs": 500,             # Number of training epochs
+    "learning_rate": 0.01,     # Learning rate for optimizer
+    "batch_size": 32,          # Batch size for DataLoader
+    "random_state": 42         # Random state for reproducibility
+}
+
+# Shallow MLP Model Definition 
+class ShallowCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(ShallowCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+# Deep MLP Model Definition (Modified)
+class DeepCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(DeepCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+if training_flag:
+    # Load the saved data
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+
+    # Define base results directory (Modified)
+    results_dir = os.path.join(script_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+    # Create a parameter string based on the config dictionary (Modified to include model_type)
+    param_str = f"{config['model_type']}_hidden_units_{config['hidden_units']}_epochs_{config['epochs']}_lr_{config['learning_rate']}_batch_size_{config['batch_size']}_rs_{config['random_state']}"
+
+    # Define run-specific directory within results_dir (Modified)
+    run_dir = os.path.join(results_dir, param_str)
+    os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+    # Save configuration details for reproducibility (Unchanged)
+    config_path = os.path.join(run_dir, 'config.json')
+    with open(config_path, 'w') as config_file:
+        json.dump(config, config_file, indent=4)
+    print(f"Configuration saved to {config_path}")
+
+    # Initialize metrics dictionary (Unchanged)
+    metrics = {
+        "training": {
+            "joint_metrics": {}
+        },
+        "testing": {
+            "position_errors": []
+        }
+    }
+
+    # Check if the file exists (Unchanged)
+    if not os.path.isfile(filename):
+        print(f"Error: File {filename} not found in {script_dir}")
+    else:
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data (Unchanged)
+        time_array = np.array(data['time'])            # Shape: (N,)
+        q_mes_all = np.array(data['q_mes_all'])        # Shape: (N, 7)
+        goal_positions = np.array(data['goal_positions'])  # Shape: (N, 3)
+
+        # Optional: Normalize time data for better performance (Commented)
+        # time_array = (time_array - time_array.min()) / (time_array.max() - time_array.min())
+
+        # Set random seed for reproducibility (Unchanged)
+        torch.manual_seed(config['random_state'])
+        np.random.seed(config['random_state'])
+
+        # Custom Dataset Class (Unchanged)
+        class JointDataset(Dataset):
+            def __init__(self, time_data, goal_data, joint_data):
+                # Combine time and goal data to form the input features
+                x = np.hstack((time_data.reshape(-1, 1), goal_data))  # Shape: (N, 4)
+                self.x_data = torch.from_numpy(x).float()
+                self.y_data = torch.from_numpy(joint_data).float().unsqueeze(1)  # Shape: (N, 1)
+
+            def __len__(self):
+                return len(self.x_data)
+
+            def __getitem__(self, idx):
+                return self.x_data[idx], self.y_data[idx]
+
+        # Split ratio (Unchanged)
+        split_ratio = 0.8
+
+        # Initialize lists to hold datasets and data loaders for all joints (Unchanged)
+        train_loaders = []
+        test_loaders = []
+        x_train_list = []
+        x_test_list = []
+        y_train_list = []
+        y_test_list = []
+        goal_train_list = []
+        goal_test_list = []
+
+        for joint_idx in range(7):
+            # Extract joint data (Unchanged)
+            joint_positions = q_mes_all[:, joint_idx]  # Shape: (N,)
+
+            # Split data (Added random_state)
+            x_train_time, x_test_time, y_train, y_test, goal_train, goal_test = train_test_split(
+                time_array, joint_positions, goal_positions, train_size=split_ratio, shuffle=True, random_state=config['random_state']
+            )
+
+            # Store split data for visualization (Unchanged)
+            x_train_list.append(x_train_time)
+            x_test_list.append(x_test_time)
+            y_train_list.append(y_train)
+            y_test_list.append(y_test)
+            goal_train_list.append(goal_train)
+            goal_test_list.append(goal_test)
+
+            # Create datasets (Unchanged)
+            train_dataset = JointDataset(x_train_time, goal_train, y_train)
+            test_dataset = JointDataset(x_test_time, goal_test, y_test)
+
+            # Create data loaders (Modified batch_size)
+            train_loader = DataLoader(dataset=train_dataset, batch_size=config['batch_size'], shuffle=True)
+            test_loader = DataLoader(dataset=test_dataset, batch_size=config['batch_size'], shuffle=False)
+
+            # Store loaders (Unchanged)
+            train_loaders.append(train_loader)
+            test_loaders.append(test_loader)
+
+        # Training parameters (Moved into config)
+        epochs = config['epochs']
+        learning_rate = config['learning_rate']
+
+        for joint_idx in range(7):
+
+            # The name of the saved model (Modified to include model_type and save in run_dir)
+            model_filename = os.path.join(run_dir, f"{config['model_type']}_neuralq{joint_idx+1}.pt")
+
+            # If the saved model file exists, assume it's been trained already and skip training it (Unchanged)
+            if os.path.isfile(model_filename):
+                print(f"File {model_filename} exists; assume trained already")
+                continue
+
+            print(f'\nTraining model for Joint {joint_idx+1}')
+
+            # Initialize the model based on config['model_type'] (Modified)
+            if config['model_type'] == 'shallow':
+                model = ShallowCorrectorMLP(num_hidden_units=config['hidden_units'])
+            elif config['model_type'] == 'deep':
+                model = DeepCorrectorMLP(num_hidden_units=config['hidden_units'])
+            else:
+                raise ValueError("Invalid model type specified in config. Choose 'shallow' or 'deep'.")
+
+            criterion = nn.MSELoss()
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+
+            train_loader = train_loaders[joint_idx]
+            test_loader = test_loaders[joint_idx]
+
+            train_losses = []
+            test_losses = []
+
+            # For storing metrics (Unchanged)
+            true_train_values_all = []
+            predicted_train_values_all = []
+            true_test_values_all = []
+            predicted_test_values_all = []
+
+            # Training loop (Unchanged)
+            for epoch in range(epochs):
+                model.train()
+                epoch_loss = 0
+
+                # Train MSE and R2 score
+                true_train_values = []
+                predicted_train_values = []
+
+                for data, target in train_loader:
+                    optimizer.zero_grad()
+                    output = model(data)
+                    loss = criterion(output, target)
+                    loss.backward()
+                    optimizer.step()
+
+                    epoch_loss += loss.item()
+                    true_train_values.extend(target.numpy().flatten())
+                    predicted_train_values.extend(output.detach().numpy().flatten())
+
+                train_loss = epoch_loss / len(train_loader)
+                train_losses.append(train_loss)
+
+                train_r2 = r2_score(true_train_values, predicted_train_values)
+
+                # Collect all training data for final metrics
+                true_train_values_all.extend(true_train_values)
+                predicted_train_values_all.extend(predicted_train_values)
+
+                # Evaluate on test set for this epoch
+                model.eval()
+                test_loss = 0
+                true_test_values = []
+                predicted_test_values = []
+                with torch.no_grad():
+                    for data, target in test_loader:
+                        output = model(data)
+                        loss = criterion(output, target)
+                        test_loss += loss.item()
+
+                        true_test_values.extend(target.numpy().flatten())
+                        predicted_test_values.extend(output.numpy().flatten())
+                test_loss /= len(test_loader)
+                test_losses.append(test_loss)
+
+                test_r2 = r2_score(true_test_values, predicted_test_values)
+
+                # Collect all test data for final metrics
+                true_test_values_all.extend(true_test_values)
+                predicted_test_values_all.extend(predicted_test_values)
+
+                if (epoch + 1) % 10 == 0 or epoch == 0:
+                    print(f'Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.6f}, Test Loss: {test_loss:.6f}')
+                    print(f'Train R2: {train_r2:.6f}, Test R2: {test_r2:.6f}')
+            # Final evaluation on test set
+            final_train_mse = mean_squared_error(true_train_values_all, predicted_train_values_all)
+            final_train_r2 = r2_score(true_train_values_all, predicted_train_values_all)
+            final_test_mse = mean_squared_error(true_test_values_all, predicted_test_values_all)
+            final_test_r2 = r2_score(true_test_values_all, predicted_test_values_all)
+
+            print(f'\nFinal Metrics for Joint {joint_idx+1}:')
+            print(f'Train MSE: {final_train_mse:.6f}')
+            print(f'Test MSE: {final_test_mse:.6f}')
+            print(f'Train R²: {final_train_r2:.6f}')
+            print(f'Test R²: {final_test_r2:.6f}')
+
+            # Save metrics for the current joint (Unchanged)
+            metrics["training"]["joint_metrics"][f"joint_{joint_idx+1}"] = {
+                "train_mse": final_train_mse,
+                "test_mse": final_test_mse,
+                "train_r2": final_train_r2,
+                "test_r2": final_test_r2
+            }
+
+            # Save the trained model (Filename modified)
+            torch.save(model.state_dict(), model_filename)
+            print(f'Model for Joint {joint_idx+1} saved as {model_filename}')
+
+            # Visualization (if enabled) (Modified filenames)
+            if visualize:
+                print(f'Visualizing results for Joint {joint_idx+1}...')
+
+                # Plot training and test loss over epochs
+                plt.figure(figsize=(10, 5))
+                plt.plot(range(1, epochs + 1), train_losses, label='Training Loss')
+                plt.plot(range(1, epochs + 1), test_losses, label='Test Loss')
+                plt.xlabel('Epoch')
+                plt.ylabel('Loss')
+                plt.title(f'Loss Curve for Joint {joint_idx+1}')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                # Save the plot as a PNG file with dpi=300 (Filename modified)
+                plot_filename = os.path.join(run_dir, f'{config["model_type"]}_loss_curve_joint_{joint_idx+1}.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+                print(f'Loss curve plot saved as {plot_filename}')
+
+                # Plot true vs predicted positions on the test set
+                model.eval()
+                with torch.no_grad():
+                    x_test_time = x_test_list[joint_idx]
+                    y_test = y_test_list[joint_idx]
+                    goal_test = goal_test_list[joint_idx]
+                    x_test = np.hstack((x_test_time.reshape(-1, 1), goal_test))
+                    x_test_tensor = torch.from_numpy(x_test).float()
+                    predictions = model(x_test_tensor).numpy().flatten()
+
+                # Sort the test data for better visualization
+                sorted_indices = np.argsort(x_test_time)
+                x_test_time_sorted = x_test_time[sorted_indices]
+                y_test_sorted = y_test[sorted_indices]
+                predictions_sorted = predictions[sorted_indices]
+
+                plt.figure(figsize=(10, 5))
+                plt.plot(x_test_time_sorted, y_test_sorted, label='True Joint Positions')
+                plt.plot(x_test_time_sorted, predictions_sorted, label='Predicted Joint Positions', linestyle='--')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Joint Position (rad)')
+                plt.title(f'Joint {joint_idx+1} Position Prediction on Test Set')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                # Save the plot as a PNG file with dpi=300 (Filename modified)
+                plot_filename = os.path.join(run_dir, f'{config["model_type"]}_joint_{joint_idx+1}_prediction.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+                print(f'Prediction plot saved as {plot_filename}')
+
+        print("Training and visualization completed.")
+
+        # Save metrics after training to metrics.txt (Unchanged)
+        metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+        with open(metrics_txt_path, 'w') as metrics_file:
+            metrics_file.write("=== Training Metrics ===\n\n")
+            for joint, joint_metrics in metrics["training"]["joint_metrics"].items():
+                metrics_file.write(f"{joint}:\n")
+                metrics_file.write(f"  Train MSE: {joint_metrics['train_mse']:.6f}\n")
+                metrics_file.write(f"  Test MSE: {joint_metrics['test_mse']:.6f}\n")
+                metrics_file.write(f"  Train R²: {joint_metrics['train_r2']:.6f}\n")
+                metrics_file.write(f"  Test R²: {joint_metrics['test_r2']:.6f}\n\n")
+        print(f"Training metrics saved to {metrics_txt_path}")
+
+if test_cartesian_accuracy_flag:
+
+    if not training_flag:
+        # Load the saved data (Unchanged)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+
+        # Define base results directory (Ensure consistency) (Unchanged)
+        results_dir = os.path.join(script_dir, 'results')
+        os.makedirs(results_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+        # Create a parameter string based on the config dictionary (Ensure consistency)
+        param_str = f"{config['model_type']}_hidden_units_{config['hidden_units']}_epochs_{config['epochs']}_lr_{config['learning_rate']}_batch_size_{config['batch_size']}_rs_{config['random_state']}"
+
+        # Define run-specific directory within results_dir (Ensure consistency)
+        run_dir = os.path.join(results_dir, param_str)
+        os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+        # Save configuration details for reproducibility if needed (Unchanged)
+        config_path = os.path.join(run_dir, 'config.json')
+        if not os.path.isfile(config_path):
+            with open(config_path, 'w') as config_file:
+                json.dump(config, config_file, indent=4)
+            print(f"Configuration saved to {config_path}")
+
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data (Unchanged)
+        time_array = np.array(data['time'])            # Shape: (N,)
+
+    # Load metrics if training_flag was False (Unchanged)
+    if not training_flag:
+        metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+        if os.path.isfile(metrics_txt_path):
+            with open(metrics_txt_path, 'a') as metrics_file:
+                metrics_file.write("\n=== Testing Metrics ===\n\n")
+        else:
+            # Initialize metrics dictionary if not present (Unchanged)
+            metrics = {
+                "training": {
+                    "joint_metrics": {}
+                },
+                "testing": {
+                    "position_errors": []
+                }
+            }
+            print("Metrics file not found. It will be created.")
+
+    # Ensure run_dir exists (Unchanged)
+    run_dir = os.path.join(results_dir, param_str)
+    os.makedirs(run_dir, exist_ok=True)  # Create the run directory if it doesn't exist
+
+    # Load all the models into a list (Modified to use model_type)
+    models = []
+    for joint_idx in range(7):
+        # Instantiate the model based on config['model_type'] (Modified)
+        if config['model_type'] == 'shallow':
+            model = ShallowCorrectorMLP(num_hidden_units=config['hidden_units'])
+        elif config['model_type'] == 'deep':
+            model = DeepCorrectorMLP(num_hidden_units=config['hidden_units'])
+        else:
+            raise ValueError("Invalid model type specified in config. Choose 'shallow' or 'deep'.")
+
+        # Load the saved model (Modified to load from run_dir and include model_type)
+        model_filename = os.path.join(run_dir, f"{config['model_type']}_neuralq{joint_idx+1}.pt")
+        try:
+            model.load_state_dict(torch.load(model_filename))
+        except FileNotFoundError:
+            print(f"Cannot find file {model_filename}")
+            print("Please ensure the models are trained and saved correctly.")
+            quit()
+
+        model.eval()
+        models.append(model)
+
+    # Generate new goal positions (Unchanged)
+    goal_position_bounds = {
+        'x': (0.6, 0.8),
+        'y': (-0.1, 0.1),
+        'z': (0.12, 0.12)
+    }
+    # Create a set of goal positions (Unchanged)
+    number_of_goal_positions_to_test = 10
+    goal_positions = []
+    for i in range(number_of_goal_positions_to_test):
+        goal_positions.append([
+            np.random.uniform(*goal_position_bounds['x']),
+            np.random.uniform(*goal_position_bounds['y']),
+            np.random.uniform(*goal_position_bounds['z'])
+        ])
+
+    # Generate test time array (Unchanged)
+    test_time_array = np.linspace(time_array.min(), time_array.max(), 100)  # For example, 100 time steps
+
+    # Initialize the dynamic model (Unchanged)
+    from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, CartesianDiffKin
+
+    conf_file_name = "pandaconfig.json"  # Configuration file for the robot
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    # Adjust root directory if necessary
+    name_current_directory = "tests"
+    root_dir = root_dir.replace(name_current_directory, "")
+    # Initialize simulation interface
+    sim = pb.SimInterface(conf_file_name, conf_file_path_ext=root_dir)
+
+    # Get active joint names from the simulation (Unchanged)
+    ext_names = sim.getNameActiveJoints()
+    ext_names = np.expand_dims(np.array(ext_names), axis=0)  # Adjust the shape for compatibility
+
+    source_names = ["pybullet"]  # Define the source for dynamic modeling
+
+    # Create a dynamic model of the robot (Unchanged)
+    dyn_model = PinWrapper(conf_file_name, "pybullet", ext_names, source_names, False, 0, root_dir)
+    num_joints = dyn_model.getNumberofActuatedJoints()
+
+    controlled_frame_name = "panda_link8"
+    init_joint_angles = sim.GetInitMotorAngles()
+    init_cartesian_pos, init_R = dyn_model.ComputeFK(init_joint_angles, controlled_frame_name)
+    print(f"Initial joint angles: {init_joint_angles}")
+
+    # Open the metrics.txt file for appending testing metrics (Unchanged)
+    metrics_txt_path = os.path.join(run_dir, 'metrics.txt')
+    with open(metrics_txt_path, 'a') as metrics_file:
+
+        for goal_idx, goal_position in enumerate(goal_positions, start=1):
+            print(f"\nTesting new goal position {goal_idx}------------------------------------")
+            print(f"Goal position: {goal_position}")
+
+            # Create test input features (Unchanged)
+            test_goal_positions = np.tile(goal_position, (len(test_time_array), 1))  # Shape: (100, 3)
+            test_input = np.hstack((test_time_array.reshape(-1, 1), test_goal_positions))  # Shape: (100, 4)
+
+            # Predict joint positions for the new goal position (Unchanged)
+            predicted_joint_positions_over_time = np.zeros((len(test_time_array), 7))  # Shape: (num_points, 7)
+
+            for joint_idx in range(7):
+                # Prepare the test input (Unchanged)
+                test_input_tensor = torch.from_numpy(test_input).float()  # Shape: (num_points, 4)
+
+                # Predict joint positions (Unchanged)
+                with torch.no_grad():
+                    predictions = models[joint_idx](test_input_tensor).numpy().flatten()  # Shape: (num_points,)
+
+                # Store the predicted joint positions (Unchanged)
+                predicted_joint_positions_over_time[:, joint_idx] = predictions
+
+            # Get the final predicted joint positions (at the last time step) (Unchanged)
+            final_predicted_joint_positions = predicted_joint_positions_over_time[-1, :]  # Shape: (7,)
+
+            # Compute forward kinematics (Unchanged)
+            final_cartesian_pos, final_R = dyn_model.ComputeFK(final_predicted_joint_positions, controlled_frame_name)
+
+            print(f"Computed cartesian position: {final_cartesian_pos}")
+            print(f"Predicted joint positions at final time step: {final_predicted_joint_positions}")
+
+            # Compute position error (Unchanged)
+            position_error = np.linalg.norm(final_cartesian_pos - goal_position)
+            print(f"Position error between computed position and goal: {position_error}")
+
+            # Store position error in metrics and write to metrics.txt (Unchanged)
+            metrics_file.write(f"Goal Position {goal_idx}:\n")
+            metrics_file.write(f"  Goal Position: {goal_position}\n")
+            metrics_file.write(f"  Computed Cartesian Position: {final_cartesian_pos.tolist()}\n")
+            metrics_file.write(f"  Position Error: {position_error:.6f}\n\n")
+
+            # Optional: Visualize the cartesian trajectory over time (Modified filenames)
+            if visualize:
+                cartesian_positions_over_time = []
+                for i in range(len(test_time_array)):
+                    joint_positions = predicted_joint_positions_over_time[i, :]
+                    cartesian_pos, _ = dyn_model.ComputeFK(joint_positions, controlled_frame_name)
+                    cartesian_positions_over_time.append(cartesian_pos.copy())
+
+                cartesian_positions_over_time = np.array(cartesian_positions_over_time)  # Shape: (num_points, 3)
+
+                # Plot x, y, z positions over time
+                plt.figure(figsize=(10, 5))
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 0], label='X Position')
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 1], label='Y Position')
+                plt.plot(test_time_array, cartesian_positions_over_time[:, 2], label='Z Position')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Cartesian Position (m)')
+                plt.title(f'Predicted Cartesian Positions Over Time for Goal {goal_idx}')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                # Save the plot as a PNG file with dpi=300 (Modified)
+                plot_filename = os.path.join(run_dir, f'{config["model_type"]}_goal_{goal_idx}_cartesian_positions.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+                print(f'Cartesian trajectory plot saved as {plot_filename}')
+
+                # Plot the trajectory in 3D space
+                from mpl_toolkits.mplot3d import Axes3D
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                ax.plot(cartesian_positions_over_time[:, 0], cartesian_positions_over_time[:, 1], cartesian_positions_over_time[:, 2], label='Predicted Trajectory')
+                ax.scatter(goal_position[0], goal_position[1], goal_position[2], color='red', label='Goal Position')
+                ax.set_xlabel('X Position (m)')
+                ax.set_ylabel('Y Position (m)')
+                ax.set_zlabel('Z Position (m)')
+                ax.set_title(f'Predicted Cartesian Trajectory for Goal {goal_idx}')
+                ax.legend()
+                plt.tight_layout()
+                # Save the 3D plot as a PNG file with dpi=300 (Modified)
+                plot_3d_filename = os.path.join(run_dir, f'{config["model_type"]}_goal_{goal_idx}_3D_trajectory.png')
+                plt.savefig(plot_3d_filename, dpi=300)
+                plt.close()
+                print(f'3D trajectory plot saved as {plot_3d_filename}')
+
+        print("Testing completed.")
+        print(f"All metrics and plots saved in directory: {run_dir}")
