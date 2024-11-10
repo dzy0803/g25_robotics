@@ -164,7 +164,7 @@ for batch_size in batch_sizes_list:
                 q_real_corrected.append(q_test)
 
          # Create subdirectory to save figures 
-        sub_dir = os.path.join(results_dir, f'{model_name}_{batch_size}_lr')
+        sub_dir = os.path.join(results_dir, f'{model_name}_{batch_size}_batchsize')
         os.makedirs(sub_dir, exist_ok=True)
         
         # Save results for Trajectory Tracking and Position Error with and without MLP Correction
