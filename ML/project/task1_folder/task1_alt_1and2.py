@@ -89,8 +89,8 @@ class DeepCorrectorMLP(nn.Module):
 results_dir = 'task1_1_and_2_results'  
 os.makedirs(results_dir, exist_ok=True)
 
-# Experiment parameters: defined for automating the experiment process
-hidden_nodes_list = [32, 64, 96, 128]  # change the list to hidden_nodes_list = [32] for task1.4
+# Experiment parameter lists: defined for automating the experiment process
+hidden_nodes_list = [32, 64, 96, 128]  
 models = {
     'ShallowCorrectorMLP': ShallowCorrectorMLP,
     'DeepCorrectorMLP': DeepCorrectorMLP
