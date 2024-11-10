@@ -1,0 +1,514 @@
+import numpy as np  
+import time
+import os
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # Required for 3D plotting
+from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, CartesianDiffKin
+import threading
+import pickle
+import torch.nn as nn
+import torch
+from sklearn.ensemble import RandomForestRegressor
+import joblib  # For saving and loading models
+
+# Set the model types to handle both Random Forest and Neural Network
+model_types = ["random_forest", "neural_network"]  # We will handle both models for comparison
+
+# === Define directories for Random Forest and Neural Network models ===
+# Define the directory for Random Forest models
+run_dir_rf = r"C:/Users/ziyar/lab_sessions_COMP0245_PUBLIC/finals/task3/results task 3/n_estimators_50_max_depth_10_random_state_42_n_jobs_-1"
+
+# Define the directory for Neural Network models
+run_dir_nn = r"C:/Users/ziyar/lab_sessions_COMP0245_PUBLIC/finals/task3/results task 3/shallow_hidden_units_128_epochs_500_lr_0.01_batch_size_32_rs_42"  # Update this path as needed
+# === End of defined directories ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+save_dir = os.path.join(script_dir, 'task3_3_three_way_comparison_n50_d2_a0.0025')  # Unified directory for saving plots
+
+# === MLP Model Definitions ===
+# Shallow MLP Model Definition
+class ShallowCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(ShallowCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+# Deep MLP Model Definition
+class DeepCorrectorMLP(nn.Module):
+    def __init__(self, num_hidden_units):
+        super(DeepCorrectorMLP, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(4, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, num_hidden_units),
+            nn.ReLU(),
+            nn.Linear(num_hidden_units, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+# === End of MLP Model Definitions ===
+
+def exponential_moving_average(data, alpha):
+    ema = []
+    for t in range(len(data)):
+        if t == 0:
+            ema.append(data[t])  # Initialize with the first data point
+        else:
+            ema_value = alpha * data[t] + (1 - alpha) * ema[t - 1]
+            ema.append(ema_value)
+    return np.array(ema)
+
+def main():
+    # Set the time threshold (in seconds) for plotting joint-related graphs
+    time_threshold = 0.1  # Modify this value as needed
+
+    # Load the saved data
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(script_dir, 'data.pkl')  # Replace with your actual filename
+    if not os.path.isfile(filename):
+        print(f"Error: File {filename} not found in {script_dir}")
+        return
+    else:
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        # Extract data
+        time_array = np.array(data['time'])            # Shape: (N,)
+        q_mes_all = np.array(data['q_mes_all'])        # Shape: (N, 7)
+        goal_positions = np.array(data['goal_positions'])  # Shape: (N, 3)
+
+        # Combine time and goal data to form input features
+        X = np.hstack((time_array.reshape(-1, 1), goal_positions))  # Shape: (N, 4)
+
+    # Define the directory to save plots and metrics
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"Results will be saved in: {save_dir}")
+
+    # Initialize metrics dictionary
+    metrics = {
+        "testing": {
+            "goal_positions": [],
+            "final_end_effector_positions": {
+                "rf_original": [],
+                "rf_smoothed": [],
+                "mlp": []
+            },
+            "position_errors": {
+                "rf_original": [],
+                "rf_smoothed": [],
+                "mlp": []
+            },
+            # Added trajectory data storage
+            "end_effector_trajectories": {
+                "rf_original": [],
+                "rf_smoothed": [],
+                "mlp": []
+            }
+        }
+    }
+
+    # Load all the Random Forest models into a list
+    models_rf = []
+    if "random_forest" in model_types:
+        for joint_idx in range(7):
+            # Define the model filename
+            model_filename_rf = os.path.join(run_dir_rf, f'rf_joint{joint_idx+1}.joblib')  # Ensure models are named like 'rf_joint1.joblib', etc.
+
+            if not os.path.isfile(model_filename_rf):
+                print(f"Error: Random Forest model file {model_filename_rf} not found.")
+                return
+            try:
+                model_rf = joblib.load(model_filename_rf)
+            except Exception as e:
+                print(f"Error loading Random Forest model for Joint {joint_idx+1}: {e}")
+                return
+            models_rf.append(model_rf)
+            print(f"Loaded Random Forest model for Joint {joint_idx+1} from {model_filename_rf}")  # Informative print
+
+    # Load all the Neural Network models into a list
+    models_mlp = []
+    if "neural_network" in model_types:
+        num_hidden_units = 128  # As defined earlier
+
+        for joint_idx in range(7):
+            # Instantiate the model
+            # Uncomment the desired architecture
+            model_mlp = ShallowCorrectorMLP(num_hidden_units)
+            # model_mlp = DeepCorrectorMLP(num_hidden_units)
+
+            # Define the model filename
+            model_filename_mlp = os.path.join(run_dir_nn, f'neuralq{joint_idx+1}.pt')  # Ensure models are named like 'neuralq1.pt', 'neuralq2.pt', etc.
+
+            if not os.path.isfile(model_filename_mlp):
+                print(f"Error: Neural Network model file {model_filename_mlp} not found.")
+                return
+            try:
+                # Load the state dictionary without weights_only to ensure compatibility
+                state_dict = torch.load(model_filename_mlp, map_location=torch.device('cpu'))
+                model_mlp.load_state_dict(state_dict)
+            except RuntimeError as e:
+                print(f"RuntimeError while loading the model for Joint {joint_idx+1}: {e}")
+                return
+            model_mlp.eval()
+            models_mlp.append(model_mlp)
+            print(f"Loaded Neural Network model for Joint {joint_idx+1} from {model_filename_mlp}")  # Informative print
+
+    # Generate new goal positions
+    goal_position_bounds = {
+        'x': (0.6, 0.8),
+        'y': (-0.1, 0.1),
+        'z': (0.12, 0.12)
+    }
+    number_of_goal_positions_to_test = 1
+    goal_positions = []
+    for i in range(number_of_goal_positions_to_test):
+        goal_positions.append([
+            np.random.uniform(*goal_position_bounds['x']),
+            np.random.uniform(*goal_position_bounds['y']),
+            np.random.uniform(*goal_position_bounds['z'])
+        ])
+
+    conf_file_name = "pandaconfig.json"  # Configuration file for the robot
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Initialize simulation interface
+    sim = pb.SimInterface(conf_file_name, conf_file_path_ext=root_dir)
+
+    # Get active joint names from the simulation
+    ext_names = sim.getNameActiveJoints()
+    ext_names = np.expand_dims(np.array(ext_names), axis=0)  # Adjust the shape for compatibility
+
+    source_names = ["pybullet"]  # Define the source for dynamic modeling
+
+    # Create a dynamic model of the robot
+    dyn_model = PinWrapper(conf_file_name, "pybullet", ext_names, source_names, False, 0, root_dir)
+    num_joints = dyn_model.getNumberofActuatedJoints()
+
+    controlled_frame_name = "panda_link8"
+    init_joint_angles = sim.GetInitMotorAngles()
+    init_cartesian_pos, init_R = dyn_model.ComputeFK(init_joint_angles, controlled_frame_name)
+    print(f"Initial joint angles: {init_joint_angles}")
+
+    # PD controller gains
+    kp = 1000  # Proportional gain
+    kd = 100   # Derivative gain
+
+    # Get joint velocity limits
+    joint_vel_limits = sim.GetBotJointsVelLimit()
+
+    time_step = sim.GetTimeStep()
+    # Generate test time array
+    test_time_array = np.arange(time_array.min(), time_array.max(), time_step)
+
+    # Initialize data storage for predicted joint positions
+    all_predicted_joint_positions = {
+        'rf_original': {joint_idx: [] for joint_idx in range(7)},
+        'rf_smoothed': {joint_idx: [] for joint_idx in range(7)},
+        'mlp': {joint_idx: [] for joint_idx in range(7)}
+    }
+
+    for idx, goal_position in enumerate(goal_positions, start=1):
+        print(f"\nTesting new goal position {idx}------------------------------------")
+        print(f"Goal position: {goal_position}")
+
+        # Prepare test inputs for RF and MLP
+        test_goal_positions = np.tile(goal_position, (len(test_time_array), 1))  # Shape: (num_points, 3)
+        test_input = np.hstack((test_time_array.reshape(-1, 1), test_goal_positions))  # Shape: (num_points, 4)
+
+        # Predict with Random Forest (Original)
+        predicted_joint_positions_rf_original = np.zeros((len(test_time_array), 7))
+        for joint_idx in range(7):
+            predictions_rf = models_rf[joint_idx].predict(test_input)  # Shape: (num_points,)
+            predicted_joint_positions_rf_original[:, joint_idx] = predictions_rf
+
+        # Apply Exponential Moving Average to RF predictions for smoothing
+        alpha = 0.0025  # Smoothing factor for EMA
+        predicted_joint_positions_rf_smoothed = np.zeros_like(predicted_joint_positions_rf_original)
+        for joint_idx in range(7):
+            predicted_joint_positions_rf_smoothed[:, joint_idx] = exponential_moving_average(predicted_joint_positions_rf_original[:, joint_idx], alpha)
+
+        # Predict with Neural Network (MLP)
+        predicted_joint_positions_mlp = np.zeros((len(test_time_array), 7))
+        for joint_idx in range(7):
+            # Prepare the test input tensor
+            test_input_tensor = torch.from_numpy(test_input).float()  # Shape: (num_points, 4)
+            with torch.no_grad():
+                predictions_mlp = models_mlp[joint_idx](test_input_tensor).numpy().flatten()  # Shape: (num_points,)
+            predicted_joint_positions_mlp[:, joint_idx] = predictions_mlp
+
+        # Append predictions to the data storage
+        for joint_idx in range(7):
+            all_predicted_joint_positions['rf_original'][joint_idx].extend(predicted_joint_positions_rf_original[:, joint_idx])
+            all_predicted_joint_positions['rf_smoothed'][joint_idx].extend(predicted_joint_positions_rf_smoothed[:, joint_idx])
+            all_predicted_joint_positions['mlp'][joint_idx].extend(predicted_joint_positions_mlp[:, joint_idx])
+
+        # Compute qd_des_over_time by numerically differentiating the predicted joint positions
+        qd_des_over_time = {}
+        qd_des_over_time_clipped = {}
+        for model_name, predicted_joint_positions in [('rf_original', predicted_joint_positions_rf_original),
+                                                      ('rf_smoothed', predicted_joint_positions_rf_smoothed),
+                                                      ('mlp', predicted_joint_positions_mlp)]:
+            qd_des_over_time[model_name] = np.gradient(predicted_joint_positions, axis=0, edge_order=2) / time_step
+            # Clip the joint velocities to the joint limits
+            qd_des_over_time_clipped[model_name] = np.clip(qd_des_over_time[model_name], -np.array(joint_vel_limits), np.array(joint_vel_limits))
+
+        # Initialize dictionaries to store position errors
+        position_error_dict = {}
+        torque_norm_dict = {}
+
+        # Append the goal_position once per goal
+        metrics["testing"]["goal_positions"].append(goal_position)
+
+        # Define simulation cases
+        simulation_cases = [
+            {
+                'name': 'rf_original',
+                'joint_positions': predicted_joint_positions_rf_original,
+                'qd_over_time': qd_des_over_time_clipped['rf_original']
+            },
+            {
+                'name': 'rf_smoothed',
+                'joint_positions': predicted_joint_positions_rf_smoothed,
+                'qd_over_time': qd_des_over_time_clipped['rf_smoothed']
+            },
+            {
+                'name': 'mlp',
+                'joint_positions': predicted_joint_positions_mlp,
+                'qd_over_time': qd_des_over_time_clipped['mlp']
+            }
+        ]
+
+        # Initialize dictionaries to store end-effector trajectories
+        # ee_trajectories = {
+        #     'rf_original': {},
+        #     'rf_smoothed': {},
+        #     'mlp': {}
+        # }
+
+        # Run simulations for each case
+        for case in simulation_cases:
+            print(f"\nRunning simulation case: {case['name']}")
+
+            # Instantiate MotorCommands inside the simulation case to ensure it's defined
+            cmd = MotorCommands()  # Initialize command structure for motors
+
+            # Reset the simulation
+            sim.ResetPose()
+            current_time = 0  # Initialize current time
+
+            time_list = []
+            q_des_list = []
+            q_mes_list = []
+            qd_des_list = []
+            qd_mes_list = []
+            tau_cmd_list = []
+            ee_pos_list = []  # List to store end-effector positions over time
+
+            # Initialize torque command norms
+            torque_norm_list = []
+
+            # Initialize EMA for torque commands if using smoothing (only for 'rf_smoothed')
+            if case['name'] == 'rf_smoothed':
+                ema_tau_cmd = np.zeros(7)  # Initialize EMA torque command
+
+            # Data collection loop
+            while current_time < test_time_array.max():
+                # Measure current state
+                q_mes = sim.GetMotorAngles(0)
+                qd_mes = sim.GetMotorVelocities(0)
+                qdd_est = sim.ComputeMotorAccelerationTMinusOne(0)
+
+                # Get the index corresponding to the current time
+                current_index = int(current_time / time_step)
+                if current_index >= len(test_time_array):
+                    current_index = len(test_time_array) - 1
+
+                # Get q_des and qd_des_clip from predicted data
+                q_des = case['joint_positions'][current_index, :]  # Desired joint angles
+                qd_des_clip = case['qd_over_time'][current_index, :]  # Desired joint velocities
+
+                # Control command
+                tau_cmd = feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_des, qd_des_clip, kp, kd)
+
+                # Apply EMA filter to torque commands if smoothing
+                if case['name'] == 'rf_smoothed':
+                    alpha = 1
+                    ema_tau_cmd = alpha * tau_cmd + (1 - alpha) * tau_cmd
+                    tau_cmd_filtered = ema_tau_cmd
+                else:
+                    tau_cmd_filtered = tau_cmd
+
+                cmd.SetControlCmd(tau_cmd_filtered, ["torque"] * 7)  # Set the torque command
+                sim.Step(cmd, "torque")  # Simulation step with torque command
+
+                time_list.append(current_time)
+                q_des_list.append(q_des)
+                q_mes_list.append(q_mes)
+                qd_des_list.append(qd_des_clip)
+                qd_mes_list.append(qd_mes)
+                tau_cmd_list.append(tau_cmd_filtered)
+
+                # Store torque norm
+                torque_norm = np.linalg.norm(tau_cmd_filtered)
+                torque_norm_list.append(torque_norm)
+
+                # Compute and store end-effector position
+                ee_pos, _ = dyn_model.ComputeFK(q_mes, controlled_frame_name)
+                ee_pos_list.append(ee_pos)
+
+                # Keyboard event handling
+                keys = sim.GetPyBulletClient().getKeyboardEvents()
+                qKey = ord('q')
+
+                # Exit logic with 'q' key
+                if qKey in keys and keys[qKey] & sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
+                    print("Exiting simulation.")
+                    break
+
+                # Time management
+                time.sleep(time_step)  # Control loop timing
+                current_time += time_step
+
+            # Convert lists to arrays
+            time_array_sim = np.array(time_list)
+            q_des_array = np.array(q_des_list)
+            q_mes_array = np.array(q_mes_list)
+            qd_des_array = np.array(qd_des_list)
+            qd_mes_array = np.array(qd_mes_list)
+            tau_cmd_array = np.array(tau_cmd_list)
+            torque_norm_array = np.array(torque_norm_list)
+
+            # Compute forward kinematics for the final predicted joint positions
+            final_predicted_joint_positions = case['joint_positions'][-1, :]  # Shape: (7,)
+            final_cartesian_pos, final_R = dyn_model.ComputeFK(final_predicted_joint_positions, controlled_frame_name)
+            print(f"Final computed cartesian position: {final_cartesian_pos}")
+
+            # Compute position error
+            position_error = np.linalg.norm(final_cartesian_pos - goal_position)
+            print(f"Position error between computed position and goal: {position_error:.6f}")
+
+            # Store the final end-effector position and position error
+            metrics["testing"]["final_end_effector_positions"][case['name']].append(final_cartesian_pos)
+            metrics["testing"]["position_errors"][case['name']].append(position_error)
+
+            # Store torque norm over time
+            torque_norm_dict[case['name']] = torque_norm_array
+
+            # Save joint position and velocity plots for this case
+            for joint_idx in range(7):
+                # Define time threshold filtering for plotting
+                filtered_indices = time_array_sim >= time_threshold
+                time_array_filtered = time_array_sim[filtered_indices]
+                q_des_filtered = q_des_array[filtered_indices, joint_idx]
+                q_mes_filtered = q_mes_array[filtered_indices, joint_idx]
+                qd_des_filtered = qd_des_array[filtered_indices, joint_idx]
+                qd_mes_filtered = qd_mes_array[filtered_indices, joint_idx]
+                tracking_error_filtered = q_des_filtered - q_mes_filtered
+
+                # Joint Position Plot
+                plt.figure(figsize=(10, 5))
+                plt.plot(time_array_filtered, q_des_filtered, label='Desired Position')
+                plt.plot(time_array_filtered, q_mes_filtered, label='Measured Position')
+                plt.title(f'Joint {joint_idx+1} Position Over Time for Goal {idx} ({case["name"]})', fontsize=22)
+                plt.xlabel('Time (s)', fontsize=18)
+                plt.ylabel('Joint Position (rad)', fontsize=18)
+                plt.legend(fontsize=16)
+                plt.grid(True)
+                plt.tight_layout()
+                plot_filename = os.path.join(save_dir, f'goal_{idx}_joint_{joint_idx+1}_position_{case["name"]}.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+
+                # Joint Velocity Plot
+                plt.figure(figsize=(10, 5))
+                plt.plot(time_array_filtered, qd_des_filtered, label='Desired Velocity')
+                plt.plot(time_array_filtered, qd_mes_filtered, label='Measured Velocity')
+                plt.title(f'Joint {joint_idx+1} Velocity Over Time for Goal {idx} ({case["name"]})', fontsize=22)
+                plt.xlabel('Time (s)', fontsize=18)
+                plt.ylabel('Joint Velocity (rad/s)', fontsize=18)
+                plt.legend(fontsize=16)
+                plt.grid(True)
+                plt.tight_layout()
+                plot_filename = os.path.join(save_dir, f'goal_{idx}_joint_{joint_idx+1}_velocity_{case["name"]}.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+
+                # Tracking Error Plot
+                plt.figure(figsize=(10, 5))
+                plt.plot(time_array_filtered, tracking_error_filtered, label='Tracking Error')
+                plt.title(f'Joint {joint_idx+1} Tracking Error Over Time for Goal {idx} ({case["name"]})', fontsize=22)
+                plt.xlabel('Time (s)', fontsize=18)
+                plt.ylabel('Position Error (rad)', fontsize=18)
+                plt.legend(fontsize=16)
+                plt.grid(True)
+                plt.tight_layout()
+                plot_filename = os.path.join(save_dir, f'goal_{idx}_joint_{joint_idx+1}_tracking_error_{case["name"]}.png')
+                plt.savefig(plot_filename, dpi=300)
+                plt.close()
+
+            # Torque Norm Plot
+            plt.figure(figsize=(10, 5))
+            plt.plot(time_array_sim, torque_norm_array, label=f'Torque Norm ({case["name"]})')
+            plt.title(f'Torque Norm Over Time for Goal {idx} ({case["name"]})', fontsize=22)
+            plt.xlabel('Time (s)', fontsize=18)
+            plt.ylabel('Torque Norm (Nm)', fontsize=18)
+            plt.legend(fontsize=16)
+            plt.grid(True)
+            plt.tight_layout()
+            plot_filename = os.path.join(save_dir, f'goal_{idx}_torque_norm_{case["name"]}.png')
+            plt.savefig(plot_filename, dpi=300)
+            plt.close()
+
+            print("\nGenerating torque norm comparison plot...")
+            plt.figure(figsize=(10, 5))
+            time_array_sim = np.array(time_list)
+
+            # Debugging outputs
+            print(f"Length of time_array_sim: {len(time_array_sim)}")
+
+            for case in simulation_cases:
+                if case['name'] in torque_norm_dict:
+                    # print(f"Length of torque_norm_dict[{case['name']}]: {len(torque_norm_dict[case['name']])}")
+                    if len(time_array_sim) > 50 and len(torque_norm_dict[case['name']]) > 50:
+                        plt.plot(time_array_sim[50:], torque_norm_dict[case['name']][50:], label=f'{case["name"]}')
+                    else:
+                        print(f"Skipping plot for {case['name']} due to insufficient data.")
+                else:
+                    print(f"Data for {case['name']} not found in torque_norm_dict.")
+
+            plt.title(f'Torque Norm Comparison Over Time for Goal {idx}', fontsize=22)
+            plt.xlabel('Time (s)', fontsize=18)
+            plt.ylabel('Torque Norm (Nm)', fontsize=18)
+            plt.legend(fontsize=16)
+            plt.grid(True)
+            plt.tight_layout()
+
+            plot_filename = os.path.join(save_dir, f'goal_{idx}_torque_norm_comparison.png')
+            plt.savefig(plot_filename, dpi=300)
+            plt.close()
+            print(f'Torque norm comparison plot saved as {plot_filename}')
+
+    # Save metrics to a text file
+    metrics_txt_path = os.path.join(save_dir, 'metrics.txt')
+    with open(metrics_txt_path, 'w') as metrics_file:
+        metrics_file.write("=== Testing Metrics ===\n\n")
+        for idx in range(number_of_goal_positions_to_test):
+            metrics_file.write(f"Goal Position {idx+1}:\n")
+            metrics_file.write(f"  Target Goal Position: {metrics['testing']['goal_positions'][idx]}\n")
+            for model_name in ['rf_original', 'rf_smoothed', 'mlp']:
+                final_pos = metrics["testing"]["final_end_effector_positions"][model_name][idx]
+                position_error = metrics["testing"]["position_errors"][model_name][idx]
+                metrics_file.write(f"  Model: {model_name}\n")
+                metrics_file.write(f"    Final End-Effector Position: {final_pos.tolist()}\n")
+                metrics_file.write(f"    Position Error (Final): {position_error:.6f}\n")
+            metrics_file.write("\n")
+    print(f"Testing metrics saved to {metrics_txt_path}")
+
+if __name__ == '__main__':
+    main()
