@@ -52,7 +52,7 @@ Y_tensor = torch.tensor(Y, dtype=torch.float32).view(-1, 1)
 
 # Dataset and DataLoader
 train_dataset = TensorDataset(X_tensor, Y_tensor)
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)  # batch_size= 64, 128, 256 or 1000
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)  
 
 # MLP Model Definition
 class ShallowCorrectorMLP(nn.Module):
@@ -86,7 +86,7 @@ class DeepCorrectorMLP(nn.Module):
  
 # TODO Start Point ---------------------------------------------------------------------------------------------------------- 
 # Creating directory for saving results
-results_dir = 'task1_1_and_2_results'   # results_dir = 'task1_3_results' for task 1.3 or 'results_dir = task1_4_results for task 1.4'
+results_dir = 'task1_1_and_2_results'  
 os.makedirs(results_dir, exist_ok=True)
 
 # Experiment parameters: defined for automating the experiment process
@@ -108,7 +108,7 @@ for model_name, model_class in models.items():
 
         model = model_class(num_hidden_units=num_hidden_nodes)
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=1e-4) # change lr = 1e-3, 1e-2, 1e-1, 1 for task 1.3
+        optimizer = optim.Adam(model.parameters(), lr=1e-4) 
         
         
         # Training Loop
