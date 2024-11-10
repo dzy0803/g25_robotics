@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
-
+import pandas as pd
 
 # Constants
 m = 1.0  # Mass (kg)
@@ -187,7 +187,6 @@ for lr in learning_rates_lists:
         plt.close()
       
 # print result
-import pandas as pd
 df_results = pd.DataFrame(results)
 print(df_results)
 
