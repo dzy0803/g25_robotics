@@ -22,7 +22,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_
 
 
 # 2.Implement decision tree train
-tree = DecisionTreeRegressor(max_depth=10, splitter="best")  # max_depth = {5, 10} and splitter = {"best", "random"} used
+tree = DecisionTreeRegressor(max_depth=10, splitter="random")  # max_depth = {5, 10} and splitter = {"best", "random"} used
 tree.fit(X_train, y_train)
 # Testing
 decision_tree_y_pred_test = tree.predict(X_test)     # Testing for test set prediction
@@ -44,20 +44,26 @@ fig = plt.figure(figsize=(15, 10))
 ax1 = fig.add_subplot(121, projection='3d')
 ax1.scatter(X_train[:, 0], X_train[:, 1], y_train, color='r', label='Y_train (True)', s=20)
 ax1.scatter(X_train[:, 0], X_train[:, 1], decision_tree_y_pred_train, color='b', label='Y_train (Predicted)', s=20, alpha=0.5)
-ax1.set_xlabel('X1 (Train)')
-ax1.set_ylabel('X2 (Train)')
-ax1.set_zlabel('Y')
-ax1.set_title('Decision Tree: 3D Visualization of X1_train, X2_train, Y_train, Y_train_pred')
-ax1.legend()
+ax1.set_xlabel('X1 (Train)',fontsize=16)
+ax1.set_ylabel('X2 (Train)',fontsize=16)
+ax1.set_zlabel('Y',fontsize=16)
+ax1.set_title('Decision Tree: 3D Visualization', fontsize=20)
+ax1.tick_params(axis='x', labelsize=14)
+ax1.tick_params(axis='y', labelsize=14)
+ax1.tick_params(axis='z', labelsize=14)
+ax1.legend(fontsize=18)
 # 3D Plot for test set
 ax2 = fig.add_subplot(122, projection='3d')
 ax2.scatter(X_test[:, 0], X_test[:, 1], y_test, color='r', label='Y_test (True)', s=20)
 ax2.scatter(X_test[:, 0], X_test[:, 1], decision_tree_y_pred_test, color='b', label='Y_test (Predicted)', s=20, alpha=0.5)
-ax2.set_xlabel('X1 (Test)')
-ax2.set_ylabel('X2 (Test)')
-ax2.set_zlabel('Y')
-ax2.set_title('Decision Tree: 3D Visualization of X1_test, X2_test, Y_test, Y_test_pred')
-ax2.legend()
+ax2.set_xlabel('X1 (Test)', fontsize=16)
+ax2.set_ylabel('X2 (Test)', fontsize=16)
+ax2.set_zlabel('Y', fontsize=16)
+ax2.set_title('Decision Tree: 3D Visualization', fontsize=20)
+ax2.legend(fontsize=18)
+ax2.tick_params(axis='x', labelsize=14)
+ax2.tick_params(axis='y', labelsize=14)
+ax2.tick_params(axis='z', labelsize=14)
 plt.show()
 
 # Scatter plots of the Actual vs Predicted values for both Train and Test set
@@ -134,7 +140,7 @@ plt.plot(np.sort(y_test), poly_best_fit_line(np.sort(y_test)), color='grey', lin
 # Setting labels and title with increased font size
 plt.xlabel('Y_test (True)', fontsize=20)  # Increase x-axis label size
 plt.ylabel('Y_test (Predicted)', fontsize=20)  # Increase y-axis label size
-plt.title('Y_test (True) vs Y_test (Predicted): Decision Tree Regressor vs Polynomial Regression', fontsize=19)  # Increase title size
+plt.title('Y_test (True) vs Y_test (Predicted): Decision Tree Regressor vs Polynomial Regression', fontsize=20)  # Increase title size
 
 # Enlarging tick labels
 plt.xticks(fontsize=20)
@@ -167,6 +173,11 @@ scatter4 = plt.scatter(X_train[:, 0], X_train[:, 1], c=decision_tree_y_pred_trai
 plt.colorbar(scatter4, label='Color Scale')  
 plt.title('Trian set: Decision Tree Prediction')
 plt.show()
+
+
+
+
+
 
 
 
