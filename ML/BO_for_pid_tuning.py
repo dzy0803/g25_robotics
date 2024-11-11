@@ -111,16 +111,23 @@ def simulate_with_given_pid_values(sim_, kp, kd, episode_duration=10):
 
 # Objective function for optimization
 def objective(params):
+    # Extract kp and kd values from params
     kp = np.array(params[:7])  # First 7 elements correspond to kp
     kd = np.array(params[7:])  # Last 7 elements correspond to kd
-    episode_duration = 10
+    episode_duration = 10  # Duration of each episode in seconds
     
-    # TODO Call the simulation with given kp and kd values
+    # Run the simulation with the given kp and kd values and collect the tracking error
+    tracking_error = simulate_with_given_pid_values(sim, kp, kd, episode_duration)
 
-    # TODO Collect data for the first kp and kd  
+    # Store kp, kd, and tracking error for later analysis or plotting
+    joint_id = 4
+    kp0_values.append(kp[joint_id])
+    kd0_values.append(kd[joint_id])
+    tracking_errors.append(tracking_error)
     
-    
+    # Return the tracking error as the objective for minimization
     return tracking_error
+
 
 
 def main():
@@ -147,11 +154,11 @@ def main():
     result = gp_minimize(
     objective,
     space,
-    n_calls=10,
+    n_calls=40,
     base_estimator=gp,  # Use the custom Gaussian Process Regressor
-    acq_func='EI',      # TODO change this LCB': Lower Confidence Bound 'EI': Expected Improvement 'PI': Probability of Improvement
+    acq_func='PI',      # TODO change this LCB': Lower Confidence Bound 'EI': Expected Improvement 'PI': Probability of Improvement
     random_state=42)
-    
+
     # Extract the optimal values
     best_kp = result.x[:7]  # Optimal kp vector
     best_kd = result.x[7:]  # Optimal kd vector
@@ -164,9 +171,9 @@ def main():
     # Fit GP models
     gp_kp0 = fit_gp_model_1d(kp0_values_array, tracking_errors_array)
     gp_kd0 = fit_gp_model_1d(kd0_values_array, tracking_errors_array)
-
+    tracking_errors_array = np.min(tracking_errors_array)
     # Plot the results
-    plot_gp_results_1d(kp0_values_array, kd0_values_array, tracking_errors_array, gp_kp0, gp_kd0)
+    plot_gp_results_1d(kp0_values_array, kd0_values_array, tracking_errors_array, gp_kp0, gp_kd0, tracking_errors_array)
 
 
     print(f"Optimal Kp: {best_kp}, Optimal Kd: {best_kd}")
